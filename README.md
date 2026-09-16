@@ -1,7 +1,7 @@
 # Simulador do Modelo OSI
 
 Projeto 1 da disciplina de **Comunicação de Dados**, ministrada pelo
-**Prof. Vinícius S. Borges**. Semestre 2026/1.
+**Prof. Vinícius S. Borges**. Semestre 2026/2.
 
 ## Autoria
 

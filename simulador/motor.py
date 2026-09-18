@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
 """Relogio e laco de simulacao.
 
-O motor recebe a descricao de um ou mais fluxos de comunicacao e produz a
-lista completa de eventos que a interface consome. A interface nunca chama um
-metodo de camada: ela apenas percorre a lista de eventos produzida aqui.
+Recebe um ou mais fluxos e produz a lista de eventos que a interface consome.
 
-O percurso e conduzido salto a salto. O motor nao sabe escolher rota: ele le
-o enlace anotado no quadro pela camada 2, entrega o quadro ao vizinho daquele
-enlace e deixa que a camada 3 do vizinho decida o salto seguinte.
+O motor nao escolhe rota: le o enlace que a camada 2 anotou no quadro, entrega
+ao vizinho e deixa a camada 3 desse vizinho decidir o salto seguinte.
 """
 
 from __future__ import annotations
@@ -68,7 +65,7 @@ class ResultadoSimulacao:
         self.enlace_com_erro: str = ""
         self.observacao: str = ""
 
-    # -- leitura ------------------------------------------------------------
+    # leitura
 
     @property
     def eventos(self) -> list[Evento]:
@@ -127,7 +124,7 @@ class Motor:
         self.contador = ContadorGlobal()
         self.dispositivos: dict[str, Any] = {}
 
-    # -- preparacao ---------------------------------------------------------
+    # preparacao
 
     def _preparar(self) -> None:
         """Recria as pilhas de todos os dispositivos e zera os contadores."""
@@ -138,7 +135,7 @@ class Motor:
             for nome, dispositivo in self.topologia.dispositivos.items()
         }
 
-    # -- execucao -----------------------------------------------------------
+    # execucao
 
     def executar(self, fluxos: list[Fluxo], *,
                  enlaces_derrubados: list[str] | None = None,
@@ -190,7 +187,7 @@ class Motor:
                     saida.append(lista[posicao])
         return saida
 
-    # -- um fluxo -----------------------------------------------------------
+    # um fluxo
 
     def _executar_fluxo(self, fluxo: Fluxo,
                         enlace_com_erro: str) -> tuple[list[Evento], ResumoFluxo]:
@@ -265,7 +262,7 @@ class Motor:
 
         return eventos, resumo
 
-    # -- percurso de um quadro ---------------------------------------------
+    # percurso de um quadro
 
     def _percorrer(self, unidade: UnidadeDados, transmissor: str,
                    contexto: dict[str, Any], resumo: ResumoFluxo,
@@ -328,7 +325,7 @@ class Motor:
 
         return eventos, False
 
-    # -- auxiliares ---------------------------------------------------------
+    # auxiliares
 
     def _ip_de_chegada(self, dispositivo: str, unidade: UnidadeDados) -> str:
         """Endereco logico da interface pela qual o quadro chega ao vizinho."""

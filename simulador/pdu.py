@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
 """Unidade de dados de protocolo (PDU) e cabecalhos.
 
-Cada cabecalho e materializado como uma sequencia real de octetos, com o
-tamanho fixado nas convencoes de `config.py`. Por isso o tamanho mostrado na
-tela nao e uma contagem simbolica: e o comprimento efetivo dos octetos que a
-unidade carrega, e a verificacao de erro da camada 2 e calculada sobre eles.
+Cada cabecalho e uma sequencia real de octetos, com o tamanho definido em
+config.py. O tamanho mostrado na tela e o comprimento efetivo, e o CRC da
+camada 2 e calculado sobre esses octetos.
 
-A unidade guarda os cabecalhos da esquerda para a direita na mesma ordem em
-que aparecem no enlace:
+Os cabecalhos ficam na ordem em que aparecem no enlace:
 
-    [ L2 | L3 | L4 | L5 | dados uteis | finalizador L2 ]
-
-Essa e exatamente a figura exigida pelo requisito V3 de visualizacao.
+    [ L2 | L3 | L4 | L5 | dados | finalizador L2 ]
 """
 
 from __future__ import annotations
@@ -23,9 +19,7 @@ from typing import Any
 
 from . import config
 
-# ---------------------------------------------------------------------------
 # Conversoes de endereco
-# ---------------------------------------------------------------------------
 
 
 def ip_para_octetos(ip: str) -> bytes:
@@ -103,27 +97,16 @@ def bits_do_prefixo(prefixo: str) -> int:
     return int(bits) if bits.isdigit() else -1
 
 
-# ---------------------------------------------------------------------------
 # Cabecalho
-# ---------------------------------------------------------------------------
 
 
 @dataclass
 class Cabecalho:
-    """Um cabecalho (ou finalizador) acrescentado por uma camada.
+    """Um cabecalho (ou finalizador) acrescentado por uma camada."""
 
-    Atributos
-    ---------
-    camada       numero da camada que o inseriu (2 a 5)
-    nome         rotulo curto mostrado na figura da unidade de dados
-    octetos      conteudo real do cabecalho; `len(octetos)` e o seu tamanho
-    campos       dicionario legivel com os campos, para inspecao na interface
-    finalizador  verdadeiro quando o bloco fica a direita dos dados
-    """
-
-    camada: int
-    nome: str
-    octetos: bytes
+    camada: int               # 2 a 5
+    nome: str                 # rotulo mostrado na figura da unidade
+    octetos: bytes            # conteudo real; len(octetos) e o tamanho
     campos: dict[str, Any] = field(default_factory=dict)
     finalizador: bool = False
 
@@ -134,9 +117,7 @@ class Cabecalho:
         return ", ".join(f"{chave}={valor}" for chave, valor in self.campos.items())
 
 
-# ---------------------------------------------------------------------------
 # Construtores de cabecalho, um por camada
-# ---------------------------------------------------------------------------
 
 
 def cabecalho_sessao(identificador: str) -> Cabecalho:
@@ -232,9 +213,7 @@ def finalizador_enlace(conteudo: bytes) -> Cabecalho:
                      finalizador=True)
 
 
-# ---------------------------------------------------------------------------
 # Unidade de dados
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -265,7 +244,7 @@ class UnidadeDados:
     texto_original: str | None = None              # so existe nos extremos
     metadados: dict[str, Any] = field(default_factory=dict)
 
-    # -- medidas -----------------------------------------------------------
+    # medidas
     def tamanho(self) -> int:
         """Tamanho corrente em octetos: cabecalhos + dados + finalizador."""
         total = len(self.dados) + sum(len(c) for c in self.cabecalhos)
@@ -288,7 +267,7 @@ class UnidadeDados:
         """Octetos cobertos pela verificacao de erro: tudo menos o finalizador."""
         return b"".join(c.octetos for c in self.cabecalhos) + self.dados
 
-    # -- manipulacao de cabecalhos ----------------------------------------
+    # manipulacao de cabecalhos
     def com_cabecalho(self, cabecalho: Cabecalho) -> "UnidadeDados":
         """Devolve uma copia com `cabecalho` acrescentado a esquerda."""
         nova = self.copia()
@@ -331,7 +310,7 @@ class UnidadeDados:
             metadados=dict(self.metadados),
         )
 
-    # -- desenho ------------------------------------------------------------
+    # desenho
     def blocos(self) -> list[dict[str, Any]]:
         """Descreve a unidade como blocos, para o requisito V3.
 

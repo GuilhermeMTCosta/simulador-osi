@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Os sete cenarios obrigatorios de validacao.
+"""Os sete cenarios de validacao.
 
-O enunciado os chama de C1 a C7 e os criterios de avaliacao, de E1 a E7. Os
-dois nomes designam o mesmo conjunto, e o programa aceita ambos.
-
-Cada cenario e apenas um conjunto de parametros: quais fluxos existem, qual
-enlace esta derrubado e em qual enlace um bit e alterado. Quem executa e o
-motor, de modo que um cenario nao contem logica de simulacao.
+O enunciado os chama de C1 a C7 e os criterios, de E1 a E7. O programa aceita
+os dois nomes. Cada cenario e so um conjunto de parametros; quem executa e o
+motor.
 """
 
 from __future__ import annotations
@@ -48,9 +45,7 @@ class Cenario:
         return f"{self.identificador}/{self.alias} - {self.nome}"
 
 
-# ---------------------------------------------------------------------------
 # Montagem dos cenarios
-# ---------------------------------------------------------------------------
 
 
 def _ip(topologia: Topologia, host: str) -> str:

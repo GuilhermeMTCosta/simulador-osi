@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Convencoes de simulacao do projeto.
+"""Convencoes de simulacao.
 
-Este modulo reune, em um unico lugar, todos os numeros que determinam o
-resultado de uma execucao. Alterar qualquer valor daqui muda os tamanhos
-exibidos na tela e a eficiencia calculada; por isso cada constante aparece
-tambem na secao "Convencoes de simulacao" da documentacao tecnica.
+Reune os numeros que determinam o resultado de uma execucao. Mudar um valor
+aqui muda os tamanhos na tela e a eficiencia calculada.
 
-Nenhum caminho absoluto aparece no codigo: a pasta de trabalho e descoberta
-em tempo de execucao por `diretorio_base()`, de modo que trocar o arquivo
-`topologia.json` colocado ao lado do executavel troca a rede simulada.
+A pasta de trabalho e descoberta em `diretorio_base()`, sem caminho absoluto.
 """
 
 from __future__ import annotations
@@ -16,9 +12,7 @@ from __future__ import annotations
 import os
 import sys
 
-# ---------------------------------------------------------------------------
 # Identificacao
-# ---------------------------------------------------------------------------
 NOME_PROGRAMA = "Simulador do Modelo OSI"
 VERSAO = "1.0"
 AUTORIA = "Grupo 8"
@@ -31,9 +25,7 @@ INTEGRANTES = (
 )
 DISCIPLINA = "Comunicacao de Dados - Prof. Vinicius S. Borges"
 
-# ---------------------------------------------------------------------------
 # Tamanhos de cabecalho, em octetos
-# ---------------------------------------------------------------------------
 # Fixados pelo enunciado (secao "Custo do empilhamento"). Sao os mesmos para
 # todos os projetos da turma, de modo que os numeros sejam comparaveis.
 TAMANHO_CABECALHO_SESSAO = 4       # camada 5
@@ -48,9 +40,7 @@ TAMANHO_FINALIZADOR_ENLACE = 4     # camada 2, finalizador (verificacao de erro)
 TAMANHO_CABECALHO_APLICACAO = 0
 TAMANHO_CABECALHO_APRESENTACAO = 0
 
-# ---------------------------------------------------------------------------
 # Camada 4: segmentacao
-# ---------------------------------------------------------------------------
 # A camada 4 recebe da camada 5 um bloco formado pelo cabecalho de sessao
 # seguido do conteudo cifrado. Se esse bloco nao passa do limiar, viaja em um
 # unico segmento; se passa, e fatiado em pedacos de, no maximo,
@@ -63,41 +53,29 @@ TAMANHO_CABECALHO_APRESENTACAO = 0
 LIMIAR_SEGMENTACAO = 64
 CARGA_MAXIMA_SEGMENTO = 40
 
-# ---------------------------------------------------------------------------
 # Camada 6: codificacao e cifra
-# ---------------------------------------------------------------------------
 CODIFICACAO = "utf-8"
 # Cifra de fluxo por ou-exclusivo com chave repetida. E reversivel, preserva o
 # comprimento em octetos e so e desfeita na camada 6 do destino.
 CHAVE_CIFRA = b"OSI"
 
-# ---------------------------------------------------------------------------
 # Camada 5: sessao
-# ---------------------------------------------------------------------------
 PREFIXO_SESSAO = "S-"        # identificador impresso como S-0001, S-0002, ...
 
-# ---------------------------------------------------------------------------
 # Camada 3: rede
-# ---------------------------------------------------------------------------
 TTL_INICIAL = 64             # campo informativo; nao e decrementado
 PROTOCOLO_TRANSPORTE = 6     # numero de protocolo gravado no cabecalho
 VERSAO_IHL = 0x45            # versao 4, cabecalho de 5 palavras de 32 bits
 PREFIXO_PACOTE = "P"         # pacotes sao numerados P1, P2, P3, ...
 
-# ---------------------------------------------------------------------------
 # Camada 2: enlace
-# ---------------------------------------------------------------------------
 TIPO_PROTOCOLO_ENLACE = 0x0800   # indica que a carga e um pacote da camada 3
 PREFIXO_QUADRO = "Q"             # quadros sao numerados Q1, Q2, Q3, ...
 
-# ---------------------------------------------------------------------------
 # Camada 1: fisica
-# ---------------------------------------------------------------------------
 BITS_POR_OCTETO = 8
 
-# ---------------------------------------------------------------------------
 # Interface
-# ---------------------------------------------------------------------------
 # (rotulo, intervalo entre passos em milissegundos). O requisito V5 pede pelo
 # menos tres velocidades; sao oferecidas quatro.
 VELOCIDADES = (
@@ -112,9 +90,7 @@ ARQUIVO_TOPOLOGIA_PADRAO = "topologia.json"
 ARQUIVO_REGISTRO_PADRAO = "registro_eventos.txt"
 ARQUIVO_RELATORIO_PADRAO = "relatorio_simulacao.html"
 
-# ---------------------------------------------------------------------------
 # Descoberta de diretorio
-# ---------------------------------------------------------------------------
 
 
 def diretorio_base() -> str:

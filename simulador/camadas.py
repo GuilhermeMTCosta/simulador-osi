@@ -1,22 +1,12 @@
 # -*- coding: utf-8 -*-
 """As sete classes de camada do modelo OSI.
 
-Cada camada e uma classe separada com dois metodos de sentido oposto:
+Cada camada tem dois metodos: `desce` encapsula, `sobe` desencapsula. Quem
+encadeia as chamadas e o dispositivo, em dispositivos.py, entao uma camada
+nunca acessa outra que nao seja adjacente.
 
-- `desce`: recebe a unidade da camada superior, acrescenta o que lhe cabe e
-  devolve o resultado para que a camada inferior o receba (encapsulamento);
-- `sobe`: recebe a unidade da camada inferior, retira e interpreta o que lhe
-  cabe e devolve o resultado para a camada superior (desencapsulamento).
-
-Nenhuma camada chama outra camada: quem encadeia as chamadas e o objeto do
-dispositivo, em `dispositivos.py`. Assim uma camada nunca alcanca outra que
-nao lhe seja adjacente, e a camada 3 de um roteador nao tem como chegar a uma
-camada 4 que nem sequer existe naquele objeto.
-
-A comunicacao entre camadas adjacentes que nao cabe na propria unidade de
-dados passa pelo dicionario `contexto`. A camada 3 escreve ali o resultado da
-decisao de rota, e a camada 2 le apenas o vizinho ja escolhido: a camada 2
-nunca escolhe rota (restricao R4).
+O que nao cabe na unidade de dados passa pelo dicionario `contexto`: a camada
+3 escreve la a decisao de rota e a camada 2 so le o vizinho ja escolhido.
 """
 
 from __future__ import annotations
@@ -41,9 +31,7 @@ from .pdu import (
 SETA = "→"
 
 
-# ---------------------------------------------------------------------------
 # Contadores compartilhados
-# ---------------------------------------------------------------------------
 
 
 class ContadorGlobal:
@@ -98,9 +86,7 @@ def _evento(contexto: dict[str, Any], camada: str, acao: str, descricao: str,
     )
 
 
-# ---------------------------------------------------------------------------
 # Camada 7 - Aplicacao
-# ---------------------------------------------------------------------------
 
 
 class CamadaAplicacao:
@@ -137,9 +123,7 @@ class CamadaAplicacao:
         return unidade, [evento]
 
 
-# ---------------------------------------------------------------------------
 # Camada 6 - Apresentacao
-# ---------------------------------------------------------------------------
 
 
 def _cifrar(dados: bytes) -> bytes:
@@ -182,9 +166,7 @@ class CamadaApresentacao:
         return nova, [evento]
 
 
-# ---------------------------------------------------------------------------
 # Camada 5 - Sessao
-# ---------------------------------------------------------------------------
 
 
 class CamadaSessao:
@@ -219,9 +201,7 @@ class CamadaSessao:
         return nova, [evento]
 
 
-# ---------------------------------------------------------------------------
 # Camada 4 - Transporte
-# ---------------------------------------------------------------------------
 
 
 class CamadaTransporte:
@@ -237,7 +217,7 @@ class CamadaTransporte:
         self._buffer: dict[tuple[int, int], dict[int, UnidadeDados]] = {}
         self._esperado: dict[tuple[int, int], int] = {}
 
-    # -- descida -----------------------------------------------------------
+    # descida
 
     def desce(self, unidade: UnidadeDados,
               contexto: dict[str, Any]) -> list[tuple[UnidadeDados, list[Evento]]]:
@@ -297,7 +277,7 @@ class CamadaTransporte:
 
         return resultados
 
-    # -- subida ------------------------------------------------------------
+    # subida
 
     def sobe(self, unidade: UnidadeDados,
              contexto: dict[str, Any]) -> tuple[UnidadeDados | None, list[Evento]]:
@@ -374,9 +354,7 @@ class CamadaTransporte:
         self._esperado.clear()
 
 
-# ---------------------------------------------------------------------------
 # Camada 3 - Rede
-# ---------------------------------------------------------------------------
 
 
 class CamadaRede:
@@ -442,7 +420,7 @@ class CamadaRede:
                          f"pacote {rotulo} entregue ao destino {destino}", nova)
         return nova, [evento]
 
-    # -- decisao de rota ---------------------------------------------------
+    # decisao de rota
 
     def _decidir(self, unidade: UnidadeDados,
                  contexto: dict[str, Any]) -> list[Evento]:
@@ -511,9 +489,7 @@ class CamadaRede:
         return [_evento(contexto, "L3", "ROTEIA", descricao, unidade)]
 
 
-# ---------------------------------------------------------------------------
 # Camada 2 - Enlace
-# ---------------------------------------------------------------------------
 
 
 class CamadaEnlace:
@@ -596,9 +572,7 @@ class CamadaEnlace:
         return nova, [evento]
 
 
-# ---------------------------------------------------------------------------
 # Camada 1 - Fisica
-# ---------------------------------------------------------------------------
 
 
 class CamadaFisica:

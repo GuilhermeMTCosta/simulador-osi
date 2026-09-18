@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
 """Computador (sete camadas) e roteador (tres camadas).
 
-Cada dispositivo possui a sua propria pilha de camadas e e ele quem encadeia
-as chamadas entre camadas adjacentes. E aqui que a restricao R1 do enunciado
-se torna estrutural: o objeto `Roteador` nao instancia as camadas 4 a 7, logo
-nao existe nele nenhum atributo, metodo ou variavel capaz de ler uma porta ou
-o nome de um processo.
+O roteador nao instancia as camadas 4 a 7, entao nao existe nele nenhum
+atributo ou metodo capaz de ler uma porta ou o nome de um processo.
 """
 
 from __future__ import annotations
@@ -38,7 +35,7 @@ class Computador:
         self.enlace = CamadaEnlace()
         self.fisica = CamadaFisica()
 
-    # -- envio -------------------------------------------------------------
+    # envio
 
     def preparar_envio(
         self, texto: str, contexto: dict[str, Any]
@@ -91,7 +88,7 @@ class Computador:
 
         return bits, eventos_total
 
-    # -- recepcao ----------------------------------------------------------
+    # recepcao
 
     def receber(self, unidade: UnidadeDados,
                 contexto: dict[str, Any]) -> tuple[UnidadeDados | None, list[Evento]]:

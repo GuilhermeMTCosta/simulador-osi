@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Ponto de entrada do Simulador do Modelo OSI.
-
-Duplo clique no executavel, ou, a partir do codigo-fonte:
+"""Ponto de entrada do simulador.
 
     python main.py            abre a interface grafica
-    python main.py --texto    executa os sete cenarios em modo texto
+    python main.py --texto    executa os sete cenarios no terminal
 
-A janela nao se fecha sozinha ao terminar nem diante de um erro: qualquer
-falha inesperada e mostrada em uma caixa de mensagem antes de o programa
-encerrar.
+Qualquer falha inesperada e mostrada em uma caixa de mensagem, para a janela
+nao fechar sozinha.
 """
 
 from __future__ import annotations

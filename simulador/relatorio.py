@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Exportacao do resultado de uma simulacao em HTML.
+"""Exporta o resultado de uma simulacao em HTML.
 
-O relatorio e um arquivo unico, sem dependencia externa, que pode ser aberto
-em qualquer navegador ou anexado a um trabalho. Ele le apenas o
-`ResultadoSimulacao`, como faz a interface grafica: nenhuma camada e chamada
-daqui.
+Arquivo unico, sem dependencia externa. Le apenas o ResultadoSimulacao.
 """
 
 from __future__ import annotations
@@ -125,7 +122,7 @@ def gerar_html(resultado: ResultadoSimulacao, cenario: Cenario | None,
         f"{_e(', '.join(config.INTEGRANTES))}</p>",
     ]
 
-    # -- cenario ------------------------------------------------------------
+    # cenario
     partes.append("<section><h2 style='margin-top:0'>Cenario</h2>")
     partes.append(f"<p><b>{_e(titulo)}</b><br>{_e(cenario.descricao if cenario else '')}</p>")
     if resultado.observacao:
@@ -138,7 +135,7 @@ def gerar_html(resultado: ResultadoSimulacao, cenario: Cenario | None,
                       f"<code>{_e(resultado.enlace_com_erro)}</code></p>")
     partes.append("</section>")
 
-    # -- quadro numerico ----------------------------------------------------
+    # quadro numerico
     estado = ('<span class="ok">mensagem entregue</span>' if resultado.entregue
               else '<span class="erro">mensagem nao entregue</span>')
     partes.append("<section><h2 style='margin-top:0'>Custo do empilhamento</h2>")
@@ -154,7 +151,7 @@ def gerar_html(resultado: ResultadoSimulacao, cenario: Cenario | None,
                   f"E2 com quatro enlaces, {comparativo['E2_eficiencia']:.1%}.</p>")
     partes.append("</section>")
 
-    # -- percurso -----------------------------------------------------------
+    # percurso
     partes.append("<section><h2 style='margin-top:0'>Percurso e quadros</h2>")
     for fluxo in resultado.fluxos:
         partes.append(f"<p class='caminho mono'>Fluxo {_e(fluxo.rotulo)}: "
@@ -180,12 +177,12 @@ def gerar_html(resultado: ResultadoSimulacao, cenario: Cenario | None,
                   "o par de enderecos fisicos muda a cada salto.</p>")
     partes.append("</section>")
 
-    # -- unidade de dados ---------------------------------------------------
+    # unidade de dados
     partes.append("<section><h2 style='margin-top:0'>Unidade de dados</h2>")
     partes.append(_desenho_pdu(resultado))
     partes.append("</section>")
 
-    # -- tabelas de encaminhamento ------------------------------------------
+    # tabelas de encaminhamento
     partes.append("<section><h2 style='margin-top:0'>Tabelas de encaminhamento</h2>")
     for nome in sorted(resultado.tabelas):
         if topologia.dispositivos[nome].tipo != "roteador":
@@ -198,12 +195,12 @@ def gerar_html(resultado: ResultadoSimulacao, cenario: Cenario | None,
         ))
     partes.append("</section>")
 
-    # -- registro -----------------------------------------------------------
+    # registro
     partes.append("<section><h2 style='margin-top:0'>Registro de eventos</h2>")
     partes.append(f"<pre>{_e(resultado.registro.texto())}</pre>")
     partes.append("</section>")
 
-    # -- convencoes ---------------------------------------------------------
+    # convencoes
     partes.append("<section><h2 style='margin-top:0'>Convencoes de simulacao</h2>")
     partes.append(_tabela(["Parametro", "Valor"],
                           [list(par) for par in config.resumo_convencoes()]))

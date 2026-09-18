@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 """Topologia, enlaces e tabelas de encaminhamento.
 
-A rede simulada e lida de um arquivo JSON externo. Trocar esse arquivo,
-colocado ao lado do executavel, troca a rede simulada sem alterar uma linha
-de codigo e sem gerar outro executavel.
+A rede vem de um JSON externo; trocar o arquivo troca a rede simulada.
 
-Um *segmento* e um dominio de enlace, isto e, uma rede fisica: dois membros
-do mesmo segmento trocam quadros diretamente. Segmentos de rede local tem
-custo 0 e os enlaces ponto a ponto entre roteadores carregam os custos
-marcados na topologia, que sao a metrica do algoritmo de menor caminho.
+Um segmento e um dominio de enlace: dois membros do mesmo segmento trocam
+quadros diretamente. Redes locais custam 0 e os enlaces entre roteadores
+carregam o custo declarado, que e a metrica do menor caminho.
 """
 
 from __future__ import annotations
@@ -24,9 +21,7 @@ from .pdu import bits_do_prefixo, ip_valido, pertence_ao_prefixo
 ROTA_PADRAO = "0.0.0.0/0"
 
 
-# ---------------------------------------------------------------------------
 # Estruturas de dados
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -120,9 +115,7 @@ class ErroTopologia(Exception):
     """Levantada quando o arquivo de topologia esta ausente ou malformado."""
 
 
-# ---------------------------------------------------------------------------
 # Topologia
-# ---------------------------------------------------------------------------
 
 
 class Topologia:
@@ -140,7 +133,7 @@ class Topologia:
         self.processos_por_porta: dict[int, str] = {}
         self.carregar(self.caminho)
 
-    # -- carregamento -------------------------------------------------------
+    # carregamento
 
     def carregar(self, caminho: str) -> None:
         """Le o arquivo JSON e reconstroi as estruturas internas.
@@ -259,7 +252,7 @@ class Topologia:
                         f"a interface {interface!r}."
                     )
 
-    # -- consultas basicas ---------------------------------------------------
+    # consultas basicas
 
     def computadores(self) -> list[str]:
         return [d.nome for d in self.dispositivos.values() if d.tipo == "computador"]
@@ -316,7 +309,7 @@ class Topologia:
     def processo_da_porta(self, porta: int) -> str | None:
         return self.processos_por_porta.get(porta)
 
-    # -- estado dos enlaces --------------------------------------------------
+    # estado dos enlaces
 
     def enlaces_comutaveis(self) -> list[Segmento]:
         """Segmentos que a interface permite derrubar ou restaurar."""
@@ -334,7 +327,7 @@ class Topologia:
     def enlaces_derrubados(self) -> list[str]:
         return [s.id for s in self.segmentos if not s.ativo]
 
-    # -- encaminhamento ------------------------------------------------------
+    # encaminhamento
 
     def _grafo_roteadores(self) -> dict[str, list[tuple[str, int]]]:
         """Grafo de adjacencia entre roteadores sobre os segmentos ativos."""
@@ -512,7 +505,7 @@ class Topologia:
             caminho.append(proximo.nome)
             atual = proximo.nome
 
-    # -- auxiliares ----------------------------------------------------------
+    # auxiliares
 
     def _interface_para_ip(self, dispositivo: Dispositivo, ip: str) -> str | None:
         """Interface do dispositivo que alcanca diretamente um endereco logico."""

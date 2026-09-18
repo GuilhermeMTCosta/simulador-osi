@@ -7,11 +7,11 @@ Projeto 1 da disciplina de **Comunicação de Dados**, ministrada pelo
 
 Grupo 8
 
-- Arthur Benevides — 082230016
-- Fernando Montanher — 082230010
-- Guilherme Costa — 081240041
-- Juan Haddad — 081240043
-- Murillo Ando — 082240042
+- Arthur Benevides - 082230016
+- Fernando Montanher - 082230010
+- Guilherme Costa - 081240041
+- Juan Haddad - 081240043
+- Murillo Ando - 082240042
 
 ## Como executar
 
@@ -120,13 +120,13 @@ funciona na máquina de quem avalia.
 
 | Cenário | Caminho | Quadros | Dados | Transmitido | Eficiência |
 |---|---|---|---|---|---|
-| E1 Entrega direta | H1 – H2 | 1 | 42 B | 92 B | 45,7 % |
-| E2 Entrega indireta | H1 – R1 – R4 – R3 – H4 | 4 | 42 B | 368 B | 11,4 % |
+| E1 Entrega direta | H1 - H2 | 1 | 42 B | 92 B | 45,7 % |
+| E2 Entrega indireta | H1 - R1 - R4 - R3 - H4 | 4 | 42 B | 368 B | 11,4 % |
 | E3 Demultiplexação | dois fluxos até H4 | 8 | 84 B | 736 B | 11,4 % |
-| E4 Falha de enlace | H1 – R1 – R2 – R3 – H4 | 4 | 42 B | 368 B | 11,4 % |
-| E5 Destino inalcançável | H1 – R1 (descarte) | 1 | 0 B | 92 B | 0 % |
-| E6 Erro de transmissão | H1 – R1 – R4 – R3 (descarte) | 3 | 0 B | 276 B | 0 % |
-| E7 Mensagem longa | H1 – R1 – R4 – R3 – H4 | 12 | 100 B | 968 B | 10,3 % |
+| E4 Falha de enlace | H1 - R1 - R2 - R3 - H4 | 4 | 42 B | 368 B | 11,4 % |
+| E5 Destino inalcançável | H1 - R1 (descarte) | 1 | 0 B | 92 B | 0 % |
+| E6 Erro de transmissão | H1 - R1 - R4 - R3 (descarte) | 3 | 0 B | 276 B | 0 % |
+| E7 Mensagem longa | H1 - R1 - R4 - R3 - H4 | 12 | 100 B | 968 B | 10,3 % |
 
 ## Testes automatizados
 
@@ -150,9 +150,9 @@ botão **Salvar registro**, ou pelo terminal com `python main.py --texto`.
 
 ## Documentação
 
-- [Tutorial de execução](./docs/tutorial_execucao.pdf) — como abrir o programa
-- [Tutorial de uso](./docs/tutorial_uso.pdf) — como operar cada função
-- [Documentação técnica](./docs/documentacao_projeto.pdf) — como funciona por dentro
+- [Tutorial de execução](./docs/tutorial_execucao.pdf) - como abrir o programa
+- [Tutorial de uso](./docs/tutorial_uso.pdf) - como operar cada função
+- [Documentação técnica](./docs/documentacao_projeto.pdf) - como funciona por dentro
 
 Os três documentos trazem capturas de tela e os valores de referência de cada
 cenário, para conferência na máquina de quem avalia.

@@ -1,20 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Interface grafica do simulador.
+"""Interface grafica do simulador, em tkinter.
 
-A interface le a lista de eventos produzida pelo motor e desenha a tela a
-partir dela. Ela nao conhece as classes de camada, nao as instancia e nao
-chama nenhum metodo delas: se este arquivo fosse apagado, o simulador
-continuaria funcionando em modo texto.
-
-Cada requisito de visualizacao do enunciado tem um lugar proprio na tela:
-
-    V1  mapa da rede ................ `_desenhar_mapa`
-    V2  pilhas de camadas ........... `_desenhar_pilhas`
-    V3  unidade de dados desenhada .. `_desenhar_unidade`
-    V4  os dois pares de enderecos .. `_atualizar_enderecos`
-    V5  controle de execucao ........ `_passo_adiante`, `_alternar_execucao`
-    V6  registro de eventos ......... `_preencher_registro`, `_salvar_registro`
-    V7  alternancia entre pilhas .... `_trocar_modo_pilha`
+Le a lista de eventos produzida pelo motor e desenha a tela a partir dela. Nao
+conhece as classes de camada nem chama metodo algum delas.
 """
 
 from __future__ import annotations
@@ -29,9 +17,7 @@ from .eventos import Evento
 from .motor import Fluxo, Motor, ResultadoSimulacao
 from .rede import ErroTopologia, Topologia
 
-# ---------------------------------------------------------------------------
 # Paleta
-# ---------------------------------------------------------------------------
 
 FUNDO = "#eef1f5"
 PAPEL = "#ffffff"
@@ -175,7 +161,7 @@ class JanelaPrincipal:
         self._construir_registro(direita)
         self._construir_rodape(raiz)
 
-    # -- barra de controles ---------------------------------------------
+    # barra de controles
 
     def _construir_controles(self, pai: ttk.Frame) -> None:
         caixa = ttk.LabelFrame(pai, text="Configuracao da simulacao", padding=8)
@@ -183,7 +169,7 @@ class JanelaPrincipal:
         for coluna in (1, 3, 5, 9):
             caixa.columnconfigure(coluna, weight=1)
 
-        # --- linha 1: cenario, origem, destino
+        # linha 1: cenario, origem, destino
         ttk.Label(caixa, text="Cenario").grid(row=0, column=0, sticky="w", padx=(0, 4))
         self.var_cenario = tk.StringVar()
         self.combo_cenario = ttk.Combobox(caixa, textvariable=self.var_cenario,
@@ -212,7 +198,7 @@ class JanelaPrincipal:
                                     width=14, font=FONTE_MONO)
         self.entrada_ip.grid(row=0, column=9, sticky="w")
 
-        # --- linha 2: processos e mensagem
+        # linha 2: processos e mensagem
         ttk.Label(caixa, text="Processos").grid(row=1, column=0, sticky="w",
                                                 padx=(0, 4), pady=(6, 0))
         self.var_proc_origem = tk.StringVar()
@@ -235,7 +221,7 @@ class JanelaPrincipal:
         self.rotulo_tamanho.grid(row=1, column=9, sticky="w", padx=(6, 0), pady=(6, 0))
         self.var_mensagem.trace_add("write", self._ao_mudar_mensagem)
 
-        # --- linha 3: falhas
+        # linha 3: falhas
         falhas = ttk.Frame(caixa)
         falhas.grid(row=2, column=0, columnspan=10, sticky="ew", pady=(8, 0))
 
@@ -271,7 +257,7 @@ class JanelaPrincipal:
                         variable=self.var_pilha,
                         command=self._trocar_modo_pilha).pack(side="left", padx=(6, 0))
 
-        # --- linha 4: execucao
+        # linha 4: execucao
         execucao = ttk.Frame(caixa)
         execucao.grid(row=3, column=0, columnspan=10, sticky="ew", pady=(8, 0))
 
@@ -306,7 +292,7 @@ class JanelaPrincipal:
                                       style="Suave.TLabel")
         self.rotulo_passo.pack(side="right")
 
-    # -- mapa -------------------------------------------------------------
+    # mapa
 
     def _construir_mapa(self, pai: ttk.Frame) -> None:
         caixa = ttk.LabelFrame(pai, text="V1  Mapa da rede", padding=6)
@@ -319,7 +305,7 @@ class JanelaPrincipal:
         self.mapa.grid(row=0, column=0, sticky="nsew")
         self.mapa.bind("<Configure>", lambda _e: self._redesenhar_mapa())
 
-    # -- unidade de dados --------------------------------------------------
+    # unidade de dados
 
     def _construir_unidade(self, pai: ttk.Frame) -> None:
         caixa = ttk.LabelFrame(pai, text="V3  Unidade de dados corrente", padding=6)
@@ -334,7 +320,7 @@ class JanelaPrincipal:
         self.desenho.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.desenho.bind("<Configure>", lambda _e: self._redesenhar_unidade())
 
-    # -- enderecos ---------------------------------------------------------
+    # enderecos
 
     def _construir_enderecos(self, pai: ttk.Frame) -> None:
         caixa = ttk.LabelFrame(pai, text="V4  Os dois pares de enderecos", padding=6)
@@ -370,7 +356,7 @@ class JanelaPrincipal:
             foreground=SUAVE, font=("Segoe UI", 8))
         self.rotulo_fisicos_nota.pack(anchor="w", padx=8, pady=(0, 6))
 
-    # -- pilhas ------------------------------------------------------------
+    # pilhas
 
     def _construir_pilhas(self, pai: ttk.Frame) -> None:
         self.caixa_pilhas = ttk.LabelFrame(
@@ -389,7 +375,7 @@ class JanelaPrincipal:
         self.pilhas.configure(xscrollcommand=barra.set)
         self.pilhas.bind("<Configure>", lambda _e: self._redesenhar_pilhas())
 
-    # -- registro ----------------------------------------------------------
+    # registro
 
     def _construir_registro(self, pai: ttk.Frame) -> None:
         caixa = ttk.LabelFrame(pai, text="V6  Registro de eventos", padding=6)
@@ -417,7 +403,7 @@ class JanelaPrincipal:
         self.registro.tag_configure("sucesso", foreground=SUCESSO)
         self.registro.tag_configure("futuro", foreground="#9aa7b4")
 
-    # -- rodape ------------------------------------------------------------
+    # rodape
 
     def _construir_rodape(self, pai: ttk.Frame) -> None:
         caixa = ttk.LabelFrame(pai, text="Custo do empilhamento e acoes", padding=6)
@@ -615,7 +601,7 @@ class JanelaPrincipal:
                       self.botao_executar, self.botao_reiniciar, self.botao_fim):
             botao.configure(state=estado)
 
-    # -- navegacao ---------------------------------------------------------
+    # navegacao
 
     def _total_passos(self) -> int:
         return len(self.resultado.registro) if self.resultado else 0
@@ -716,7 +702,7 @@ class JanelaPrincipal:
     def _atualizar_mapa_estatico(self) -> None:
         self._redesenhar_mapa()
 
-    # -- V1: mapa ----------------------------------------------------------
+    # V1: mapa
 
     def _redesenhar_mapa(self) -> None:
         tela = self.mapa
@@ -744,7 +730,7 @@ class JanelaPrincipal:
         if self.resultado:
             derrubados.update(self.resultado.enlaces_derrubados)
 
-        # --- enlaces
+        # enlaces
         for segmento in self.topologia.segmentos:
             membros = [(nome, self.topologia.dispositivos[nome], iface)
                        for nome, iface in segmento.membros]
@@ -791,7 +777,7 @@ class JanelaPrincipal:
                 self._rotulo_interface(tela, p1, p2, i1)
                 self._rotulo_interface(tela, p2, p1, i2)
 
-        # --- dispositivos
+        # dispositivos
         for dispositivo in self.topologia.dispositivos.values():
             x, y = ponto(dispositivo)
             ativo = bool(evento) and evento.dispositivo == dispositivo.nome
@@ -820,7 +806,7 @@ class JanelaPrincipal:
             tela.create_text(x, y + 28, text=dispositivo.ip_principal,
                              font=("Consolas", 7), fill=SUAVE)
 
-        # --- legenda
+        # legenda
         if evento is not None and evento.unidade is not None and evento.unidade.quadro:
             tela.create_text(10, altura - 10, anchor="sw",
                              text=f"quadro corrente: {evento.unidade.quadro}",
@@ -869,7 +855,7 @@ class JanelaPrincipal:
     def _segmento_liga(segmento, par: tuple[str, str]) -> bool:
         return segmento.contem(par[0]) and segmento.contem(par[1])
 
-    # -- V2 e V7: pilhas ---------------------------------------------------
+    # V2 e V7: pilhas
 
     def _trocar_modo_pilha(self) -> None:
         self._redesenhar_pilhas()
@@ -970,7 +956,7 @@ class JanelaPrincipal:
                     vistos.append(evento.dispositivo)
         return vistos
 
-    # -- V3: unidade de dados ----------------------------------------------
+    # V3: unidade de dados
 
     def _redesenhar_unidade(self) -> None:
         tela = self.desenho
@@ -1035,7 +1021,7 @@ class JanelaPrincipal:
             tela.create_text(12, y + altura + 6, anchor="nw", text=evento.descricao,
                              font=("Segoe UI", 8, "bold"), fill=ERRO)
 
-    # -- V4: enderecos -----------------------------------------------------
+    # V4: enderecos
 
     def _atualizar_enderecos(self, evento: Evento | None) -> None:
         if evento is None or evento.unidade is None:
@@ -1061,7 +1047,7 @@ class JanelaPrincipal:
             self.rotulo_fisicos.configure(text="fora de um enlace no momento")
             self.rotulo_fisicos_nota.configure(text="substituido a cada enlace")
 
-    # -- V6: registro ------------------------------------------------------
+    # V6: registro
 
     def _preencher_registro(self) -> None:
         self.registro.configure(state="normal")
@@ -1122,7 +1108,7 @@ class JanelaPrincipal:
             *self.resultado.resumo_texto(),
         ]
 
-    # -- acoes do rodape ---------------------------------------------------
+    # acoes do rodape
 
     def _atualizar_eficiencia(self) -> None:
         if self.resultado is None or self.topologia is None:

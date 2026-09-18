@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """Evento de registro e colecao de eventos.
 
-Cada passo da simulacao produz um evento imutavel que descreve o que
-aconteceu: qual dispositivo, em qual camada, qual acao e qual o tamanho
-corrente da unidade de dados. A interface grafica consome apenas esta lista;
-ela nunca chama um metodo de camada para desenhar a tela.
+Cada passo produz um evento com dispositivo, camada, acao e tamanho corrente
+da unidade. E essa lista que a interface consome para desenhar a tela.
 """
 
 from __future__ import annotations
@@ -20,33 +18,18 @@ _LARGURA_DESCRICAO = 62
 
 @dataclass
 class Evento:
-    """Uma acao de uma camada de um dispositivo.
-
-    Atributos
-    ---------
-    passo        numero sequencial do passo na simulacao
-    dispositivo  nome do dispositivo (H1, R1, ...)
-    camada       rotulo da camada (L1 a L7)
-    acao         verbo que identifica a acao (GERA, CODIFICA, ROTEIA, ...)
-    descricao    texto legivel com os detalhes da acao
-    tamanho      tamanho corrente da unidade de dados, em octetos
-    unidade      instantaneo (copia) da unidade de dados neste ponto
-    enlace       par (origem, destino) quando o evento ocorre sobre um enlace
-    caminho      dispositivos percorridos ate aqui, para destacar no mapa
-    estado       "normal", "sucesso" ou "erro"; controla a cor na interface
-    metadados    informacoes extras para a interface grafica
-    """
+    """Uma acao de uma camada de um dispositivo."""
 
     passo: int
-    dispositivo: str
-    camada: str
-    acao: str
+    dispositivo: str          # H1, R1, ...
+    camada: str               # L1 a L7
+    acao: str                 # GERA, ROTEIA, ENQUADRA, DESCARTA, ...
     descricao: str
-    tamanho: int
+    tamanho: int              # octetos da unidade neste ponto
     unidade: UnidadeDados | None = None
     enlace: tuple[str, str] | None = None
     caminho: list[str] = field(default_factory=list)
-    estado: str = "normal"
+    estado: str = "normal"    # normal, sucesso ou erro; define a cor na tela
     metadados: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -74,7 +57,7 @@ class RegistroEventos:
     def __init__(self) -> None:
         self._eventos: list[Evento] = []
 
-    # -- escrita ------------------------------------------------------------
+    # escrita
 
     def adicionar(self, evento: Evento) -> None:
         self._eventos.append(evento)
@@ -90,7 +73,7 @@ class RegistroEventos:
         for indice, evento in enumerate(self._eventos, start=1):
             evento.passo = indice
 
-    # -- leitura ------------------------------------------------------------
+    # leitura
 
     def linhas(self) -> list[str]:
         return [evento.linha for evento in self._eventos]
@@ -108,7 +91,7 @@ class RegistroEventos:
             for linha in self.linhas():
                 arquivo.write(linha + "\n")
 
-    # -- iteracao -----------------------------------------------------------
+    # iteracao
 
     def __iter__(self) -> Iterator[Evento]:
         return iter(self._eventos)

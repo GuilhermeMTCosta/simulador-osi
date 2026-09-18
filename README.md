@@ -49,7 +49,7 @@ núcleo da simulação.
 ## Estrutura do repositório
 
 ```
-n1_comunicacao_dados/
+simulador-osi/
 ├── SimuladorOSI.exe              Programa pronto para executar
 ├── topologia.json                Rede simulada, substituível sem recompilar
 ├── main.py                       Ponto de entrada do código-fonte
@@ -57,10 +57,13 @@ n1_comunicacao_dados/
 ├── requirements.txt              Registro de dependências (não há nenhuma)
 ├── simulador/                    Código-fonte do simulador
 ├── tests/                        Testes automatizados dos sete cenários
-└── docs/                         Documentação e tutoriais
+├── registros/                    Registro de eventos dos sete casos, E1 a E7
+└── docs/
     ├── documentacao_projeto.pdf  Como o simulador funciona por dentro
     ├── tutorial_execucao.pdf     Como abrir o programa
-    └── tutorial_uso.pdf          Como operar cada função
+    ├── tutorial_uso.pdf          Como operar cada função
+    ├── especificacao.pdf         Enunciado da disciplina
+    └── guia_de_documentacao.pdf  Guia de documentação da disciplina
 ```
 
 ## Arquivos de código
@@ -134,6 +137,16 @@ python -m unittest discover -s tests -v
 São 41 testes que conferem os endereços da topologia, os custos de rota, os
 tamanhos de cada cabeçalho, os valores da tabela acima e as cinco restrições
 de projeto do enunciado.
+
+## Registros de eventos
+
+A pasta [`registros/`](./registros) traz o registro completo dos sete casos,
+de `E1.txt` a `E7.txt`, no formato da Seção 5.1 do enunciado. Cada arquivo
+começa com um cabeçalho que informa o cenário, o caminho percorrido e o quadro
+numérico da comunicação, seguido de uma linha por ação de cada camada.
+
+Os mesmos registros são reproduzidos pelo programa a qualquer momento, pelo
+botão **Salvar registro**, ou pelo terminal com `python main.py --texto`.
 
 ## Documentação
 

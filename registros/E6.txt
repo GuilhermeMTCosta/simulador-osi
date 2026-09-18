@@ -1,5 +1,5 @@
 # Simulador do Modelo OSI 1.0 - Grupo 8
-# Integrantes: Arthur Benevides 082230016, Fernando Montanher 082230010, Guilherme Costa 081240041, Juan Haddad 081240043, Murilo Ando 082240042
+# Integrantes: Arthur Benevides 082230016, Fernando Montanher 082230010, Guilherme Costa 081240041, Juan Haddad 081240043, Murillo Ando 082240042
 # Cenario: E6/C6 - Erro de transmissao
 # Descricao: Um bit e alterado no enlace R4-R3; a camada 2 de R3 descarta o quadro.
 # Rede: Rede de referencia do Projeto 1

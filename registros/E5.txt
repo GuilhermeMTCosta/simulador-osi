@@ -1,5 +1,5 @@
 # Simulador do Modelo OSI 1.0 - Grupo 8
-# Integrantes: Arthur Benevides 082230016, Fernando Montanher 082230010, Guilherme Costa 081240041, Juan Haddad 081240043, Murilo Ando 082240042
+# Integrantes: Arthur Benevides 082230016, Fernando Montanher 082230010, Guilherme Costa 081240041, Juan Haddad 081240043, Murillo Ando 082240042
 # Cenario: E5/C5 - Destino inalcancavel
 # Descricao: H1 envia para 10.0.9.10; R1 descarta por ausencia de rota.
 # Rede: Rede de referencia do Projeto 1

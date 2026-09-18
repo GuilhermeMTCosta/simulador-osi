@@ -27,7 +27,7 @@ INTEGRANTES = (
     "Fernando Montanher 082230010",
     "Guilherme Costa 081240041",
     "Juan Haddad 081240043",
-    "Murilo Ando 082240042",
+    "Murillo Ando 082240042",
 )
 DISCIPLINA = "Comunicacao de Dados - Prof. Vinicius S. Borges"
 

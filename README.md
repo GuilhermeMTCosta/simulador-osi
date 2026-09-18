@@ -5,7 +5,13 @@ Projeto 1 da disciplina de **Comunicação de Dados**, ministrada pelo
 
 ## Autoria
 
-- Guilherme Matheus Teixeira Costa — 081240041
+Grupo 8
+
+- Arthur Benevides — 082230016
+- Fernando Montanher — 082230010
+- Guilherme Costa — 081240041
+- Juan Haddad — 081240043
+- Murilo Ando — 082240042
 
 ## Como executar
 
@@ -51,12 +57,10 @@ n1_comunicacao_dados/
 ├── requirements.txt              Registro de dependências (não há nenhuma)
 ├── simulador/                    Código-fonte do simulador
 ├── tests/                        Testes automatizados dos sete cenários
-└── docs/                         Documentação, tutoriais e imagens
-    ├── documentacao_projeto.md / .pdf
-    ├── tutorial_execucao.md / .pdf
-    ├── tutorial_uso.md / .pdf
-    ├── img/                      Capturas de tela e diagrama de módulos
-    └── orientacoes/              Enunciado e guias da disciplina
+└── docs/                         Documentação e tutoriais
+    ├── documentacao_projeto.pdf  Como o simulador funciona por dentro
+    ├── tutorial_execucao.pdf     Como abrir o programa
+    └── tutorial_uso.pdf          Como operar cada função
 ```
 
 ## Arquivos de código
@@ -137,10 +141,8 @@ de projeto do enunciado.
 - [Tutorial de uso](./docs/tutorial_uso.pdf) — como operar cada função
 - [Documentação técnica](./docs/documentacao_projeto.pdf) — como funciona por dentro
 
-As mesmas versões em Markdown estão em
-[`docs/tutorial_execucao.md`](./docs/tutorial_execucao.md),
-[`docs/tutorial_uso.md`](./docs/tutorial_uso.md) e
-[`docs/documentacao_projeto.md`](./docs/documentacao_projeto.md).
+Os três documentos trazem capturas de tela e os valores de referência de cada
+cenário, para conferência na máquina de quem avalia.
 
 ## Por onde começar
 

@@ -121,7 +121,8 @@ def gerar_html(resultado: ResultadoSimulacao, cenario: Cenario | None,
         f"<style>{_ESTILO}</style></head><body><main>",
         f"<h1>{_e(config.NOME_PROGRAMA)}</h1>",
         f'<p class="sub">{_e(config.DISCIPLINA)} &middot; {_e(config.AUTORIA)}'
-        f" &middot; rede {_e(topologia.nome)} &middot; gerado em {_e(agora)}</p>",
+        f" &middot; rede {_e(topologia.nome)} &middot; gerado em {_e(agora)}<br>"
+        f"{_e(', '.join(config.INTEGRANTES))}</p>",
     ]
 
     # -- cenario ------------------------------------------------------------

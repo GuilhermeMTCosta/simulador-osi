@@ -1116,6 +1116,7 @@ class JanelaPrincipal:
         nome = self.cenario_atual.rotulo if self.cenario_atual else "personalizado"
         return [
             f"{config.NOME_PROGRAMA} {config.VERSAO} - {config.AUTORIA}",
+            f"Integrantes: {', '.join(config.INTEGRANTES)}",
             f"Cenario: {nome}",
             f"Rede: {self.topologia.nome if self.topologia else '-'}",
             *self.resultado.resumo_texto(),

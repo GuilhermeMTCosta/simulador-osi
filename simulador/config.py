@@ -21,7 +21,14 @@ import sys
 # ---------------------------------------------------------------------------
 NOME_PROGRAMA = "Simulador do Modelo OSI"
 VERSAO = "1.0"
-AUTORIA = "Guilherme Matheus Teixeira Costa 081240041"
+AUTORIA = "Grupo 8"
+INTEGRANTES = (
+    "Arthur Benevides 082230016",
+    "Fernando Montanher 082230010",
+    "Guilherme Costa 081240041",
+    "Juan Haddad 081240043",
+    "Murilo Ando 082240042",
+)
 DISCIPLINA = "Comunicacao de Dados - Prof. Vinicius S. Borges"
 
 # ---------------------------------------------------------------------------

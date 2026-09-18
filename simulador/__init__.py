@@ -15,6 +15,6 @@ Modulos, na ordem em que os dados os atravessam:
     config.py        convencoes de simulacao
 """
 
-from .config import AUTORIA, NOME_PROGRAMA, VERSAO
+from .config import AUTORIA, INTEGRANTES, NOME_PROGRAMA, VERSAO
 
-__all__ = ["AUTORIA", "NOME_PROGRAMA", "VERSAO"]
+__all__ = ["AUTORIA", "INTEGRANTES", "NOME_PROGRAMA", "VERSAO"]

@@ -1,1257 +1,1403 @@
 # -*- coding: utf-8 -*-
-"""Interface grafica do simulador, em tkinter.
+"""Interface grafica em tkinter.
 
-Le a lista de eventos produzida pelo motor e desenha a tela a partir dela. Nao
-conhece as classes de camada nem chama metodo algum delas.
+A interface consome a lista de eventos produzida pelo motor de simulacao.
+Ela NUNCA chama metodos de camada: apenas le eventos.
+
+Requisitos de visualizacao atendidos:
+V1 - Mapa da rede com destaque do caminho e rotulos de interfaces (e0, e1, eth0...)
+V2 - Pilhas de camadas com camada ativa destacada (em destaque especial a L3 dos roteadores)
+V3 - Unidade de dados desenhada com blocos de cabecalhos
+V4 - Pares de enderecos logicos e fisicos visiveis simultaneamente
+V5 - Controle de execucao (passo a passo, continuo, pausa, velocidades)
+V6 - Registro de eventos rolavel + salvar em arquivo
+V7 - Alternancia entre pilha OSI e pilha TCP/IP
 """
 
 from __future__ import annotations
 
-import os
+import math
+import traceback
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
 from typing import Any
 
-from . import cenarios, config, relatorio
-from .eventos import Evento
-from .motor import Fluxo, Motor, ResultadoSimulacao
-from .rede import ErroTopologia, Topologia
+from . import config
+from .cenarios import CENARIOS, MENSAGEM_CURTA, MENSAGEM_LONGA
+from .eventos import Evento, formatar_evento
+from .motor import Motor, ResultadoSimulacao
+from .rede import Topologia
 
-# Paleta
 
-FUNDO = "#eef1f5"
-PAPEL = "#ffffff"
-TINTA = "#1b1f24"
-SUAVE = "#5b6672"
-BORDA = "#c6cedb"
-DESTAQUE = "#1f5fa8"
-ERRO = "#b3261e"
-SUCESSO = "#1d7a46"
-TELA = "#fbfcfe"
+# ---------------------------------------------------------------------------
+# Cores e Estilos
+# ---------------------------------------------------------------------------
 
-CORES_CAMADA: dict[int, str] = {
-    7: "#c9d9f0", 6: "#d3d0ee", 5: "#dccdea", 4: "#f0d6cf",
-    3: "#cfe6d6", 2: "#f4e3c3", 1: "#dfe3e8",
-}
-NOMES_CAMADA: dict[int, str] = {
-    7: "Aplicacao", 6: "Apresentacao", 5: "Sessao", 4: "Transporte",
-    3: "Rede", 2: "Enlace", 1: "Fisica",
+CORES_CAMADAS = {
+    7: "#E74C3C",  # vermelho — aplicacao
+    6: "#E67E22",  # laranja — apresentacao
+    5: "#F1C40F",  # amarelo — sessao
+    4: "#2ECC71",  # verde — transporte
+    3: "#3498DB",  # azul — rede
+    2: "#9B59B6",  # roxo — enlace
+    1: "#1ABC9C",  # verde-agua — fisica
 }
 
-# Agrupamento do requisito V7: as camadas 5 a 7 viram uma so na pilha TCP/IP.
-GRUPOS_TCPIP: list[tuple[str, tuple[int, ...]]] = [
-    ("Aplicacao", (7, 6, 5)),
-    ("Transporte", (4,)),
-    ("Rede", (3,)),
-    ("Enlace", (2,)),
-    ("Fisica", (1,)),
+NOMES_CAMADAS_OSI = {
+    7: "Aplicacao",
+    6: "Apresentacao",
+    5: "Sessao",
+    4: "Transporte",
+    3: "Rede",
+    2: "Enlace",
+    1: "Fisica",
+}
+
+NOMES_CAMADAS_TCPIP = {
+    7: "Aplicacao",
+    6: "Aplicacao",
+    5: "Aplicacao",
+    4: "Transporte",
+    3: "Internet",
+    2: "Acesso a Rede",
+    1: "Acesso a Rede",
+}
+
+COR_ATIVO = "#FFD700"          # Dourado vibrante para destaque
+COR_ROTA_DESTAQUE = "#FF5722"    # Laranja/vermelho para decisao de rota
+COR_FUNDO = "#1E272C"           # Azul escuro grafite
+COR_FUNDO_PAINEL = "#263238"    # Tom para paineis
+COR_FUNDO_CLARO = "#37474F"     # Tom medio
+COR_TEXTO = "#ECEFF1"
+COR_ENLACE = "#546E7A"
+COR_ENLACE_ATIVO = "#E74C3C"
+COR_DISPOSITIVO = "#0288D1"
+COR_ROTEADOR = "#7E57C2"
+
+# Fundos escuros dos canvases internos (antes espalhados como hex soltos,
+# alguns duplicados). Mantidos como tons ligeiramente distintos entre si,
+# apenas nomeados para facilitar reuso e futuras trocas de tema.
+COR_FUNDO_CANVAS = "#182226"      # mapa da rede e area de pilhas
+COR_FUNDO_CANVAS_ALT = "#162026"  # painel de explicacao pedagogica
+COR_FUNDO_PDU = "#1C272C"         # canvas de desenho do PDU
+COR_FUNDO_CONSOLE = "#101820"     # barra de status e janela de tabelas
+COR_ROTULO_OCTETO = "#1A2429"     # texto do rotulo de octeto no desenho do PDU
+
+
+OPCOES_CENARIOS = [
+    ("C2", "C2 / E2 — Entrega indireta (caso central H1 \u2192 H4)"),
+    ("C1", "C1 / E1 — Entrega direta (mesma LAN H1 \u2192 H2)"),
+    ("C3", "C3 / E3 — Demultiplexacao (H1 e H2 para H4)"),
+    ("C4", "C4 / E4 — Falha de enlace (queda de R1-R4)"),
+    ("C5", "C5 / E5 — Destino inalcancavel (10.0.9.10)"),
+    ("C6", "C6 / E6 — Erro de transmissao (bit alterado R4-R3)"),
+    ("C7", "C7 / E7 — Mensagem longa (3 segmentos 40+40+24B)"),
+    ("CUSTOM", "Personalizado — Escolher parametros manualmente"),
 ]
 
-FONTE = ("Segoe UI", 9)
-FONTE_TITULO = ("Segoe UI", 9, "bold")
-FONTE_MONO = ("Consolas", 9)
-FONTE_MONO_P = ("Consolas", 8)
 
-DESTINO_LIVRE = "outro endereco..."
+# ---------------------------------------------------------------------------
+# Explicacao Didatica por Evento
+# ---------------------------------------------------------------------------
+
+
+def gerar_explicacao_didatica(evento: Evento) -> str:
+    """Produz uma explicacao pedagogica e clara do que ocorre no evento atual."""
+    disp = evento.dispositivo
+    cam = evento.camada
+    acao = evento.acao
+    desc = evento.descricao
+    tam = evento.tamanho
+
+    if cam == "L7" and acao == "GERA":
+        return (
+            f"💡 [Camada 7 — Aplicação | {disp}]\n"
+            f"O processo de origem gera a mensagem. Esta camada atende diretamente ao "
+            f"usuário e identifica a aplicação pelo nome de processo."
+        )
+
+    if cam == "L6" and acao == "CODIFICA":
+        return (
+            f"💡 [Camada 6 — Apresentação | {disp}]\n"
+            f"Converte o texto para octetos UTF-8 e aplica cifra simétrica (XOR chave 'OSI'). "
+            f"Os dados viajarão cifrados e só serão decifrados pelo destino final (Restrição R5)."
+        )
+
+    if cam == "L5" and acao == "ABRE":
+        return (
+            f"💡 [Camada 5 — Sessão | {disp}]\n"
+            f"Abre o diálogo e anexa cabeçalho de 4 octetos com identificador único de sessão "
+            f"({desc.split()[-1] if 'S-' in desc else 'S-xxxx'}), gerenciando a conexão."
+        )
+
+    if cam == "L4" and acao == "SEGMENTA":
+        return (
+            f"💡 [Camada 4 — Transporte | {disp}]\n"
+            f"Anexa cabeçalho de 8 octetos com portas de origem e destino ({desc}). "
+            f"Controla a segmentação e a integridade da entrega processo a processo."
+        )
+
+    if cam == "L4" and acao == "ARMAZENA":
+        return (
+            f"💡 [Camada 4 — Transporte | {disp}]\n"
+            f"O nó de destino armazena o segmento recebido e aguarda os demais segmentos "
+            f"para realizar a remontagem ordenada completa (Restrição R6)."
+        )
+
+    if cam == "L4" and acao == "REMONTA":
+        return (
+            f"💡 [Camada 4 — Transporte | {disp}]\n"
+            f"Todos os segmentos chegaram ao destino! A Camada 4 remonta a mensagem original "
+            f"na ordem exata antes de repassar à Camada 5 (Restrição R6)."
+        )
+
+    if cam == "L3" and acao == "ENCAPSULA":
+        return (
+            f"💡 [Camada 3 — Rede | {disp}]\n"
+            f"Insere o cabeçalho IP (20 octetos) com o par de endereços lógicos. "
+            f"Estes IPs são fixos e permanecem idênticos até o destino (Restrição R3)."
+        )
+
+    if cam == "L3" and acao == "ROTEIA":
+        if "proximo salto" in desc.lower() or "próximo salto" in desc.lower():
+            return (
+                f"💡 [Camada 3 — Rede | {disp}]\n"
+                f"Host consulta sua tabela de roteamento local e seleciona a interface "
+                f"para entrega ao roteador gateway da sub-rede."
+            )
+        return (
+            f"★ [DECISÃO DE ROTA NA CAMADA 3 | {disp}]\n"
+            f"O roteador inspeciona apenas o IP de destino e consulta sua tabela Dijkstra. "
+            f"O roteador opera estritamente nas Camadas 1 a 3 e jamais lê portas (Restrições R1 e R4)."
+        )
+
+    if cam == "L3" and acao == "DESCARTA":
+        return (
+            f"⚠️ [DESCARTE POR DESTINO INALCANÇÁVEL | {disp}]\n"
+            f"O IP de destino não pertence a nenhuma sub-rede alcançável. O pacote é "
+            f"descartado na Camada 3 do roteador com registro explícito (Cenário C5)."
+        )
+
+    if cam == "L2" and acao == "ENQUADRA":
+        return (
+            f"💡 [Camada 2 — Enlace | {disp}]\n"
+            f"Constrói um NOVO quadro com cabeçalho de 14 octetos (endereços MAC locais deste salto) "
+            f"e calcula o finalizador FCS de 4 octetos (CRC-32) para verificação de erro (Restrição R2)."
+        )
+
+    if cam == "L2" and acao == "DESENQUADRA":
+        return (
+            f"💡 [Camada 2 — Enlace | {disp}]\n"
+            f"Valida a integridade pelo CRC-32 (sem erros!). O quadro recebido é DESCARTADO "
+            f"e o pacote IP interno é entregue intacto à Camada 3 (Restrição R2)."
+        )
+
+    if cam == "L2" and acao == "ERRO":
+        return (
+            f"🛑 [ERRO DE CRC DETECTADO | {disp}]\n"
+            f"Inconsistência de bits detectada pela verificação CRC-32! O quadro corrompido é "
+            f"descartado na Camada 2 sem que nenhuma camada superior seja acionada (Restrição R9)."
+        )
+
+    if cam == "L1" and acao == "TRANSMITE":
+        return (
+            f"⚡ [Camada 1 — Física | {disp}]\n"
+            f"Converte os {tam} octetos do quadro em sequência física de {tam * 8} bits "
+            f"e transmite pelo cabo do enlace de rede correspondente."
+        )
+
+    if cam == "L1" and acao == "RECEBE":
+        return (
+            f"⚡ [Camada 1 — Física | {disp}]\n"
+            f"A placa física detecta o sinal de {tam * 8} bits no meio físico e reconstrói "
+            f"os {tam} octetos do quadro, entregando-o à Camada 2."
+        )
+
+    if cam == "L5" and acao in ("RECEBE", "FECHA"):
+        return (
+            f"💡 [Camada 5 — Sessão | {disp}]\n"
+            f"Reconhece o identificador de sessão ativo, valida o diálogo e encerra a conexão."
+        )
+
+    if cam == "L6" and acao == "DECODIFICA":
+        return (
+            f"💡 [Camada 6 — Apresentação | {disp}]\n"
+            f"Aplica a chave de decifração simétrica reversível e reconverte os octetos UTF-8 "
+            f"no texto original. Somente a Camada 6 do destino decifra a carga útil (Restrição R5)."
+        )
+
+    if cam == "L7" and acao == "ENTREGA":
+        return (
+            f"🎉 [Camada 7 — Aplicação | {disp}]\n"
+            f"Mensagem entregue com perfeição ao processo de destino! Comunicação fim a fim "
+            f"concluída com êxito."
+        )
+
+    return f"ℹ️ [{cam} em {disp} | {acao}]\n{desc} ({tam} octetos)."
+
+
+# ---------------------------------------------------------------------------
+# Janela Principal
+# ---------------------------------------------------------------------------
 
 
 class JanelaPrincipal:
-    """Janela unica do simulador."""
-
-    # -----------------------------------------------------------------
-    # Construcao
-    # -----------------------------------------------------------------
+    """Interface grafica completa, intuitiva e didatica do simulador OSI."""
 
     def __init__(self) -> None:
         self.raiz = tk.Tk()
-        self.raiz.title(config.NOME_PROGRAMA)
-        self.raiz.geometry("1380x880")
-        self.raiz.minsize(1120, 720)
-        self.raiz.configure(background=FUNDO)
+        self.raiz.title("Simulador do Modelo OSI — Comunicação de Dados")
 
+        # Geometria ergonômica centralizada adaptada à resolução da tela
+        largura_tela = self.raiz.winfo_screenwidth()
+        altura_tela = self.raiz.winfo_screenheight()
+        largura_janela = min(1360, max(1100, largura_tela - 80))
+        altura_janela = min(840, max(680, altura_tela - 90))
+        pos_x = max(10, (largura_tela - largura_janela) // 2)
+        pos_y = max(10, (altura_tela - altura_janela) // 2)
+        self.raiz.geometry(f"{largura_janela}x{altura_janela}+{pos_x}+{pos_y}")
+        self.raiz.minsize(1050, 620)
+        self.raiz.configure(bg=COR_FUNDO)
+
+        # Estado
         self.topologia: Topologia | None = None
-        self.motor: Motor | None = None
         self.resultado: ResultadoSimulacao | None = None
-        self.cenario_atual: cenarios.Cenario | None = None
-        self.indice: int = -1
-        self.executando: bool = False
-        self._tarefa: str | None = None
-        self._erro_topologia: str = ""
+        self.eventos: list[Evento] = []
+        self.passo_atual = 0
+        self.executando = False
+        self.modo_pilha = "OSI"  # ou "TCP/IP"
+        self._timer_id: str | None = None
+        self._posicoes_mapa: dict[str, tuple[int, int]] = {}
 
-        self._configurar_estilo()
-        self._carregar_topologia_inicial()
-        self._construir()
-        self._popular_campos()
-        self._limpar_tela()
-
-        if self._erro_topologia:
-            self.raiz.after(200, lambda: messagebox.showerror(
-                "Topologia", self._erro_topologia, parent=self.raiz))
-
-    def _configurar_estilo(self) -> None:
-        estilo = ttk.Style()
-        if "clam" in estilo.theme_names():
-            estilo.theme_use("clam")
-        estilo.configure(".", background=FUNDO, foreground=TINTA, font=FONTE)
-        estilo.configure("TFrame", background=FUNDO)
-        estilo.configure("TLabelframe", background=FUNDO, bordercolor=BORDA)
-        estilo.configure("TLabelframe.Label", background=FUNDO,
-                         foreground=DESTAQUE, font=FONTE_TITULO)
-        estilo.configure("TLabel", background=FUNDO)
-        estilo.configure("Suave.TLabel", foreground=SUAVE)
-        estilo.configure("Mono.TLabel", font=FONTE_MONO, background=PAPEL)
-        estilo.configure("TButton", padding=(8, 3))
-        estilo.configure("Acao.TButton", padding=(10, 4), font=FONTE_TITULO)
-        estilo.configure("TCheckbutton", background=FUNDO)
-        estilo.configure("TRadiobutton", background=FUNDO)
-        estilo.configure("Treeview", rowheight=20, fieldbackground=PAPEL,
-                         background=PAPEL, font=FONTE_MONO_P)
-        estilo.configure("Treeview.Heading", font=FONTE_TITULO)
-
-    def _carregar_topologia_inicial(self) -> None:
+        # Carrega topologia
         try:
             self.topologia = Topologia()
-            self.motor = Motor(self.topologia)
-        except ErroTopologia as erro:
-            self._erro_topologia = str(erro)
-            self.topologia = None
-            self.motor = None
-        self._atualizar_titulo()
+        except Exception as e:
+            traceback.print_exc()
+            messagebox.showerror("Erro de Inicializacao",
+                                 f"Nao foi possivel carregar topologia.json:\n{e}")
 
-    def _atualizar_titulo(self) -> None:
-        """Escreve na barra de titulo qual rede esta carregada.
+        self._configurar_estilos()
+        self._criar_interface()
 
-        Assim, substituir `topologia.json` ao lado do executavel se torna
-        visivel sem precisar abrir nenhuma janela auxiliar.
-        """
-        rede = self.topologia.nome if self.topologia else "nenhuma rede carregada"
-        self.raiz.title(f"{config.NOME_PROGRAMA} {config.VERSAO}  -  "
-                        f"rede: {rede}  -  {config.AUTORIA}")
+    def _configurar_estilos(self) -> None:
+        """Configura aparencia moderna dos componentes ttk."""
+        estilo = ttk.Style(self.raiz)
+        try:
+            estilo.theme_use("clam")
+        except tk.TclError:
+            pass
 
-    # -----------------------------------------------------------------
-    # Montagem da tela
-    # -----------------------------------------------------------------
+        estilo.configure("TLabel", background=COR_FUNDO_PAINEL, foreground=COR_TEXTO)
+        estilo.configure("TLabelframe", background=COR_FUNDO_PAINEL, foreground=COR_TEXTO)
+        estilo.configure("TLabelframe.Label", background=COR_FUNDO_PAINEL, foreground="#90CAF9",
+                         font=("Arial", 10, "bold"))
+        estilo.configure("TFrame", background=COR_FUNDO_PAINEL)
+        estilo.configure("TRadiobutton", background=COR_FUNDO_PAINEL, foreground=COR_TEXTO)
+        estilo.configure("TButton", font=("Arial", 9, "bold"))
 
-    def _construir(self) -> None:
-        raiz = ttk.Frame(self.raiz, padding=8)
-        raiz.pack(fill="both", expand=True)
-        raiz.columnconfigure(0, weight=1)
-        raiz.rowconfigure(1, weight=1)
+    # ===================================================================
+    # Construcao da interface
+    # ===================================================================
 
-        self._construir_controles(raiz)
+    def _criar_interface(self) -> None:
+        """Monta o leiaute de tres colunas."""
+        self.frame_principal = ttk.PanedWindow(self.raiz, orient=tk.HORIZONTAL)
+        self.frame_principal.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        corpo = ttk.PanedWindow(raiz, orient="horizontal")
-        corpo.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        # Coluna 1: Controles, parametros manuais e registro de eventos
+        self.frame_esquerda = ttk.Frame(self.frame_principal, width=380)
+        self.frame_principal.add(self.frame_esquerda, weight=1)
 
-        esquerda = ttk.Frame(corpo)
-        esquerda.columnconfigure(0, weight=1)
-        esquerda.rowconfigure(0, weight=1)
-        corpo.add(esquerda, weight=3)
+        # Coluna 2: Mapa da rede + Explicacao didatica + PDU desenhada + Enderecos vigentes
+        self.frame_central = ttk.Frame(self.frame_principal, width=640)
+        self.frame_principal.add(self.frame_central, weight=2)
 
-        direita = ttk.Frame(corpo)
-        direita.columnconfigure(0, weight=1)
-        direita.rowconfigure(0, weight=3)
-        direita.rowconfigure(1, weight=2)
-        corpo.add(direita, weight=2)
+        # Coluna 3: Pilhas de camadas + Eficiencia comparativa
+        self.frame_direita = ttk.Frame(self.frame_principal, width=360)
+        self.frame_principal.add(self.frame_direita, weight=1)
 
-        self._construir_mapa(esquerda)
-        self._construir_unidade(esquerda)
-        self._construir_enderecos(esquerda)
-        self._construir_pilhas(direita)
-        self._construir_registro(direita)
-        self._construir_rodape(raiz)
+        self._criar_controles()
+        self._criar_mapa()
+        self._criar_explicacao_didatica()
+        self._criar_area_pdu()
+        self._criar_area_enderecos()
+        self._criar_pilhas()
+        self._criar_registro()
+        self._criar_eficiencia()
 
-    # barra de controles
+    # -- Controles (Coluna Esquerda) ---------------------------------------
 
-    def _construir_controles(self, pai: ttk.Frame) -> None:
-        caixa = ttk.LabelFrame(pai, text="Configuracao da simulacao", padding=8)
-        caixa.grid(row=0, column=0, sticky="ew")
-        for coluna in (1, 3, 5, 9):
-            caixa.columnconfigure(coluna, weight=1)
+    def _criar_controles(self) -> None:
+        """Painel de controle: cenario, parametros manuais, execucao e velocidade."""
+        frame = ttk.LabelFrame(self.frame_esquerda, text="  1. Painel de Controle  ", padding=10)
+        frame.pack(fill=tk.X, padx=5, pady=5)
 
-        # linha 1: cenario, origem, destino
-        ttk.Label(caixa, text="Cenario").grid(row=0, column=0, sticky="w", padx=(0, 4))
-        self.var_cenario = tk.StringVar()
-        self.combo_cenario = ttk.Combobox(caixa, textvariable=self.var_cenario,
-                                          state="readonly", width=42)
-        self.combo_cenario.grid(row=0, column=1, columnspan=3, sticky="ew", padx=(0, 6))
-        self.combo_cenario.bind("<<ComboboxSelected>>", self._ao_escolher_cenario)
+        # Atalhos rápidos para cada cenário oficial (1 clique)
+        ttk.Label(frame, text="Atalhos Rápidos de Cenário:").pack(anchor=tk.W)
+        f_quick = ttk.Frame(frame)
+        f_quick.pack(fill=tk.X, pady=(2, 5))
+        for cid in ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]:
+            b = tk.Button(
+                f_quick, text=cid, width=3, font=("Segoe UI", 8, "bold"),
+                bg="#37474F", fg="#ECEFF1", activebackground="#0288D1", activeforeground="white",
+                relief=tk.RAISED, bd=1, cursor="hand2",
+                command=lambda c=cid: self._selecionar_cenario_rapido(c)
+            )
+            b.pack(side=tk.LEFT, padx=1)
 
-        ttk.Button(caixa, text="Carregar cenario",
-                   command=self._carregar_cenario).grid(row=0, column=4, padx=(0, 12))
+        # Seletor de Cenario
+        ttk.Label(frame, text="Lista de Cenários:").pack(anchor=tk.W, pady=(2, 0))
+        self.var_cenario_ext = tk.StringVar(value=OPCOES_CENARIOS[0][1])
+        nomes_combo = [desc for _, desc in OPCOES_CENARIOS]
+        combo_cen = ttk.Combobox(frame, textvariable=self.var_cenario_ext, state="readonly",
+                                 values=nomes_combo, width=42)
+        combo_cen.pack(fill=tk.X, pady=2)
+        combo_cen.bind("<<ComboboxSelected>>", self._ao_selecionar_cenario)
 
-        ttk.Label(caixa, text="Origem").grid(row=0, column=5, sticky="w", padx=(0, 4))
-        self.var_origem = tk.StringVar()
-        self.combo_origem = ttk.Combobox(caixa, textvariable=self.var_origem,
-                                         state="readonly", width=8)
-        self.combo_origem.grid(row=0, column=6, sticky="w", padx=(0, 10))
+        self.lbl_descricao = ttk.Label(frame, text="", wraplength=340, foreground="#B0BEC5",
+                                       font=("Arial", 8))
+        self.lbl_descricao.pack(anchor=tk.W, pady=(2, 6))
 
-        ttk.Label(caixa, text="Destino").grid(row=0, column=7, sticky="w", padx=(0, 4))
-        self.var_destino = tk.StringVar()
-        self.combo_destino = ttk.Combobox(caixa, textvariable=self.var_destino,
-                                          state="readonly", width=20)
-        self.combo_destino.grid(row=0, column=8, sticky="w", padx=(0, 6))
-        self.combo_destino.bind("<<ComboboxSelected>>", self._ao_escolher_destino)
+        # Parametros Manuais / Personalizados
+        self.frame_custom = ttk.LabelFrame(frame, text="  Parametros da Comunicacao  ", padding=6)
+        self.frame_custom.pack(fill=tk.X, pady=4)
 
-        self.var_ip = tk.StringVar()
-        self.entrada_ip = ttk.Entry(caixa, textvariable=self.var_ip,
-                                    width=14, font=FONTE_MONO)
-        self.entrada_ip.grid(row=0, column=9, sticky="w")
+        # Linha Origem e Destino
+        f_od = ttk.Frame(self.frame_custom)
+        f_od.pack(fill=tk.X, pady=2)
 
-        # linha 2: processos e mensagem
-        ttk.Label(caixa, text="Processos").grid(row=1, column=0, sticky="w",
-                                                padx=(0, 4), pady=(6, 0))
-        self.var_proc_origem = tk.StringVar()
-        self.combo_proc_origem = ttk.Combobox(caixa, textvariable=self.var_proc_origem,
-                                              state="readonly", width=14)
-        self.combo_proc_origem.grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ttk.Label(f_od, text="Origem:").pack(side=tk.LEFT)
+        self.var_origem = tk.StringVar(value="H1")
+        self.cb_origem = ttk.Combobox(f_od, textvariable=self.var_origem, width=5, state="readonly",
+                                      values=["H1", "H2", "H3", "H4", "H5"])
+        self.cb_origem.pack(side=tk.LEFT, padx=3)
 
-        ttk.Label(caixa, text="→").grid(row=1, column=2, pady=(6, 0))
-        self.var_proc_destino = tk.StringVar()
-        self.combo_proc_destino = ttk.Combobox(caixa, textvariable=self.var_proc_destino,
-                                               state="readonly", width=14)
-        self.combo_proc_destino.grid(row=1, column=3, sticky="w", pady=(6, 0))
+        ttk.Label(f_od, text="Destino:").pack(side=tk.LEFT, padx=(6, 0))
+        self.var_destino = tk.StringVar(value="10.0.3.10")
+        self.cb_destino = ttk.Combobox(f_od, textvariable=self.var_destino, width=13,
+                                       values=["10.0.1.10 (H1)", "10.0.1.11 (H2)", "10.0.2.10 (H3)",
+                                               "10.0.3.10 (H4)", "10.0.3.11 (H5)", "10.0.9.10 (Inalcancavel)"])
+        self.cb_destino.pack(side=tk.LEFT, padx=3)
 
-        ttk.Label(caixa, text="Mensagem").grid(row=1, column=4, sticky="e",
-                                               padx=(0, 4), pady=(6, 0))
-        self.var_mensagem = tk.StringVar()
-        ttk.Entry(caixa, textvariable=self.var_mensagem, font=FONTE_MONO).grid(
-            row=1, column=5, columnspan=4, sticky="ew", pady=(6, 0))
-        self.rotulo_tamanho = ttk.Label(caixa, text="0 B", style="Suave.TLabel")
-        self.rotulo_tamanho.grid(row=1, column=9, sticky="w", padx=(6, 0), pady=(6, 0))
-        self.var_mensagem.trace_add("write", self._ao_mudar_mensagem)
+        # Linha Falhas e Injeção
+        f_falhas = ttk.Frame(self.frame_custom)
+        f_falhas.pack(fill=tk.X, pady=2)
 
-        # linha 3: falhas
-        falhas = ttk.Frame(caixa)
-        falhas.grid(row=2, column=0, columnspan=10, sticky="ew", pady=(8, 0))
+        ttk.Label(f_falhas, text="Queda Enlace:").pack(side=tk.LEFT)
+        self.var_queda_enlace = tk.StringVar(value="Nenhum")
+        self.cb_queda = ttk.Combobox(f_falhas, textvariable=self.var_queda_enlace, width=8, state="readonly",
+                                     values=["Nenhum", "R1-R4", "R1-R2", "R2-R3", "R3-R4"])
+        self.cb_queda.pack(side=tk.LEFT, padx=2)
 
-        self.var_derrubar = tk.BooleanVar(value=False)
-        ttk.Checkbutton(falhas, text="Derrubar enlace", variable=self.var_derrubar,
-                        command=self._atualizar_mapa_estatico).pack(side="left")
-        self.var_enlace_queda = tk.StringVar()
-        self.combo_queda = ttk.Combobox(falhas, textvariable=self.var_enlace_queda,
-                                        state="readonly", width=10)
-        self.combo_queda.pack(side="left", padx=(4, 16))
-        self.combo_queda.bind("<<ComboboxSelected>>",
-                              lambda _e: self._atualizar_mapa_estatico())
+        ttk.Label(f_falhas, text="Erro CRC:").pack(side=tk.LEFT, padx=(4, 0))
+        self.var_erro_crc = tk.StringVar(value="Nenhum")
+        self.cb_erro = ttk.Combobox(f_falhas, textvariable=self.var_erro_crc, width=8, state="readonly",
+                                     values=["Nenhum", "R3-R4", "R1-R4", "R1-R2", "R2-R3"])
+        self.cb_erro.pack(side=tk.LEFT, padx=2)
 
-        self.var_injetar = tk.BooleanVar(value=False)
-        ttk.Checkbutton(falhas, text="Injetar erro de bit no enlace",
-                        variable=self.var_injetar).pack(side="left")
-        self.var_enlace_erro = tk.StringVar()
-        self.combo_erro = ttk.Combobox(falhas, textvariable=self.var_enlace_erro,
-                                       state="readonly", width=10)
-        self.combo_erro.pack(side="left", padx=(4, 16))
+        # Mensagem
+        ttk.Label(self.frame_custom, text="Mensagem de Carga Util:").pack(anchor=tk.W, pady=(4, 0))
+        self.entrada_mensagem = ttk.Entry(self.frame_custom, width=42)
+        self.entrada_mensagem.insert(0, MENSAGEM_CURTA)
+        self.entrada_mensagem.pack(fill=tk.X, pady=2)
 
-        ttk.Button(falhas, text="Simular", style="Acao.TButton",
-                   command=self._simular).pack(side="left", padx=(4, 0))
+        # Botoes de execucao (V5)
+        frame_botoes = ttk.Frame(frame)
+        frame_botoes.pack(fill=tk.X, pady=6)
 
-        ttk.Separator(falhas, orient="vertical").pack(side="left", fill="y", padx=14)
+        self.btn_carregar = ttk.Button(frame_botoes, text="▶ Iniciar",
+                                       command=self._executar_simulacao)
+        self.btn_carregar.pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(falhas, text="Pilha exibida:").pack(side="left", padx=(0, 6))
+        self.btn_voltar = ttk.Button(frame_botoes, text="⏮ Voltar",
+                                     command=self._passo_anterior)
+        self.btn_voltar.pack(side=tk.LEFT, padx=2)
+
+        self.btn_passo = ttk.Button(frame_botoes, text="⏭ Avançar",
+                                     command=self._proximo_passo)
+        self.btn_passo.pack(side=tk.LEFT, padx=2)
+
+        self.btn_continuo = ttk.Button(frame_botoes, text="⏩ Contínuo",
+                                        command=self._executar_continuo)
+        self.btn_continuo.pack(side=tk.LEFT, padx=2)
+
+        self.btn_pausa = ttk.Button(frame_botoes, text="⏸ Pausa",
+                                     command=self._pausar, state=tk.DISABLED)
+        self.btn_pausa.pack(side=tk.LEFT, padx=2)
+
+        self.btn_reiniciar = ttk.Button(frame_botoes, text="↺ Reiniciar",
+                                         command=self._reiniciar)
+        self.btn_reiniciar.pack(side=tk.LEFT, padx=2)
+
+        # Velocidade de Reproducao (V5)
+        ttk.Label(frame, text="Velocidade de Reproducao:").pack(anchor=tk.W, pady=(4, 0))
+        self.var_velocidade = tk.IntVar(value=config.VELOCIDADE_PADRAO)
+        frame_vel = ttk.Frame(frame)
+        frame_vel.pack(fill=tk.X)
+        for idx, (rotulo, _) in enumerate(config.VELOCIDADES):
+            rb = ttk.Radiobutton(frame_vel, text=rotulo, value=idx,
+                                 variable=self.var_velocidade)
+            rb.pack(side=tk.LEFT, padx=2)
+
+        # Alternancia entre pilhas OSI e TCP/IP (V7)
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        f_pilha_sel = ttk.Frame(frame)
+        f_pilha_sel.pack(fill=tk.X)
+        ttk.Label(f_pilha_sel, text="Pilha:").pack(side=tk.LEFT)
         self.var_pilha = tk.StringVar(value="OSI")
-        ttk.Radiobutton(falhas, text="OSI (7 camadas)", value="OSI",
+        ttk.Radiobutton(f_pilha_sel, text="OSI (7 camadas)", value="OSI",
                         variable=self.var_pilha,
-                        command=self._trocar_modo_pilha).pack(side="left")
-        ttk.Radiobutton(falhas, text="TCP/IP (5 a 7 agrupadas)", value="TCPIP",
+                        command=self._trocar_pilha).pack(side=tk.LEFT, padx=6)
+        ttk.Radiobutton(f_pilha_sel, text="TCP/IP (4 camadas)", value="TCP/IP",
                         variable=self.var_pilha,
-                        command=self._trocar_modo_pilha).pack(side="left", padx=(6, 0))
+                        command=self._trocar_pilha).pack(side=tk.LEFT, padx=6)
 
-        # linha 4: execucao
-        execucao = ttk.Frame(caixa)
-        execucao.grid(row=3, column=0, columnspan=10, sticky="ew", pady=(8, 0))
+        # Acoes adicionais: Topologia externa (R1) e Tabelas de Roteamento (R5)
+        f_extras = ttk.Frame(frame)
+        f_extras.pack(fill=tk.X, pady=(6, 2))
+        ttk.Button(f_extras, text="📋 Tabelas de Roteamento",
+                   command=self._abrir_tabelas_roteamento).pack(side=tk.LEFT, padx=2)
+        ttk.Button(f_extras, text="📁 Trocar Topologia JSON",
+                   command=self._trocar_arquivo_topologia).pack(side=tk.LEFT, padx=2)
 
-        # Os rotulos sao escritos por extenso, sem simbolos, para que os
-        # tutoriais possam nomear cada botao sem ambiguidade.
-        self.botao_anterior = ttk.Button(execucao, text="Voltar passo",
-                                         command=self._passo_atras, state="disabled")
-        self.botao_anterior.pack(side="left")
-        self.botao_proximo = ttk.Button(execucao, text="Avancar passo",
-                                        command=self._passo_adiante, state="disabled")
-        self.botao_proximo.pack(side="left", padx=(4, 12))
-        self.botao_executar = ttk.Button(execucao, text="Executar",
-                                         command=self._alternar_execucao,
-                                         state="disabled")
-        self.botao_executar.pack(side="left")
-        self.botao_reiniciar = ttk.Button(execucao, text="Reiniciar",
-                                          command=self._reiniciar, state="disabled")
-        self.botao_reiniciar.pack(side="left", padx=(4, 12))
-        self.botao_fim = ttk.Button(execucao, text="Ir ao fim",
-                                    command=self._ir_ao_fim, state="disabled")
-        self.botao_fim.pack(side="left", padx=(0, 16))
+        # Barra de progresso
+        self.lbl_progresso = ttk.Label(frame, text="Passo: 0 / 0", font=("Consolas", 9, "bold"))
+        self.lbl_progresso.pack(anchor=tk.W, pady=(5, 0))
+        self.barra_progresso = ttk.Progressbar(frame, mode="determinate")
+        self.barra_progresso.pack(fill=tk.X, pady=2)
 
-        ttk.Label(execucao, text="Velocidade").pack(side="left", padx=(0, 4))
-        self.var_velocidade = tk.StringVar(
-            value=config.VELOCIDADES[config.VELOCIDADE_PADRAO][0])
-        ttk.Combobox(execucao, textvariable=self.var_velocidade, state="readonly",
-                     width=12,
-                     values=[rotulo for rotulo, _ in config.VELOCIDADES]).pack(
-            side="left")
+        self._ao_selecionar_cenario()
 
-        self.rotulo_passo = ttk.Label(execucao, text="passo 0 de 0",
-                                      style="Suave.TLabel")
-        self.rotulo_passo.pack(side="right")
+    # -- Mapa da Rede (Coluna Central - V1) --------------------------------
 
-    # mapa
+    def _criar_mapa(self) -> None:
+        """Canvas com o mapa da rede, interfaces e caminho destacado (V1)."""
+        frame = ttk.LabelFrame(self.frame_central, text="  2. Mapa da Topologia de Rede (Figura 1)  ", padding=5)
+        frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-    def _construir_mapa(self, pai: ttk.Frame) -> None:
-        caixa = ttk.LabelFrame(pai, text="V1  Mapa da rede", padding=6)
-        caixa.grid(row=0, column=0, sticky="nsew")
-        caixa.columnconfigure(0, weight=1)
-        caixa.rowconfigure(0, weight=1)
+        self.canvas_mapa = tk.Canvas(frame, bg=COR_FUNDO_CANVAS, highlightthickness=0)
+        self.canvas_mapa.pack(fill=tk.BOTH, expand=True)
+        self.canvas_mapa.bind("<Configure>", lambda e: self._desenhar_mapa())
 
-        self.mapa = tk.Canvas(caixa, background=TELA, highlightthickness=1,
-                              highlightbackground=BORDA, height=320)
-        self.mapa.grid(row=0, column=0, sticky="nsew")
-        self.mapa.bind("<Configure>", lambda _e: self._redesenhar_mapa())
+    # -- Explicação Didática (Coluna Central) -------------------------------
 
-    # unidade de dados
+    def _criar_explicacao_didatica(self) -> None:
+        """Card didatico destacando a explicacao em linguagem simples do passo corrente."""
+        frame = ttk.LabelFrame(self.frame_central, text="  💡 O que está acontecendo agora (Didática do Passo)  ", padding=6)
+        frame.pack(fill=tk.X, padx=5, pady=3)
 
-    def _construir_unidade(self, pai: ttk.Frame) -> None:
-        caixa = ttk.LabelFrame(pai, text="V3  Unidade de dados corrente", padding=6)
-        caixa.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        caixa.columnconfigure(0, weight=1)
+        self.lbl_explicacao = tk.Label(
+            frame,
+            text="Escolha um cenário acima e clique em '▶ Iniciar' ou use os atalhos C1..C7.",
+            font=("Segoe UI", 9, "bold"),
+            bg=COR_FUNDO_CANVAS_ALT,
+            fg="#FFE082",
+            justify=tk.LEFT,
+            anchor="w",
+            wraplength=600,
+            padx=8,
+            pady=6,
+        )
+        self.lbl_explicacao.pack(fill=tk.X, expand=True)
 
-        self.rotulo_unidade = ttk.Label(caixa, text="-", font=FONTE_TITULO)
-        self.rotulo_unidade.grid(row=0, column=0, sticky="w")
+    # -- Unidade de Dados (Coluna Central - V3) -----------------------------
 
-        self.desenho = tk.Canvas(caixa, background=TELA, height=92,
-                                 highlightthickness=1, highlightbackground=BORDA)
-        self.desenho.grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        self.desenho.bind("<Configure>", lambda _e: self._redesenhar_unidade())
+    def _criar_area_pdu(self) -> None:
+        """Desenho da unidade de dados com blocos de cabecalhos (V3)."""
+        frame = ttk.LabelFrame(self.frame_central, text="  3. Unidade de Dados de Protocolo (PDU - V3)  ", padding=5)
+        frame.pack(fill=tk.X, padx=5, pady=4)
 
-    # enderecos
+        self.lbl_nome_unidade = ttk.Label(frame, text="Unidade: —", font=("Consolas", 10, "bold"),
+                                          foreground="#80D8FF")
+        self.lbl_nome_unidade.pack(anchor=tk.W, pady=(0, 2))
 
-    def _construir_enderecos(self, pai: ttk.Frame) -> None:
-        caixa = ttk.LabelFrame(pai, text="V4  Os dois pares de enderecos", padding=6)
-        caixa.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        caixa.columnconfigure(0, weight=1)
-        caixa.columnconfigure(1, weight=1)
+        self.canvas_pdu = tk.Canvas(frame, bg=COR_FUNDO_PDU, height=65, highlightthickness=0)
+        self.canvas_pdu.pack(fill=tk.X)
 
-        logicos = tk.Frame(caixa, background="#e4efe7", highlightthickness=1,
-                           highlightbackground=BORDA)
-        logicos.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-        tk.Label(logicos, text="Enderecos logicos  (camada 3, fim a fim)",
-                 background="#e4efe7", foreground=SUCESSO,
-                 font=FONTE_TITULO).pack(anchor="w", padx=8, pady=(6, 0))
-        self.rotulo_logicos = tk.Label(logicos, text="-", background="#e4efe7",
-                                       font=("Consolas", 11, "bold"))
-        self.rotulo_logicos.pack(anchor="w", padx=8)
-        self.rotulo_logicos_nota = tk.Label(
-            logicos, text="inserido na origem, nao muda ate o destino",
-            background="#e4efe7", foreground=SUAVE, font=("Segoe UI", 8))
-        self.rotulo_logicos_nota.pack(anchor="w", padx=8, pady=(0, 6))
+    # -- Enderecos Logicos e Fisicos (Coluna Central - V4) ------------------
 
-        fisicos = tk.Frame(caixa, background="#fbeddc", highlightthickness=1,
-                           highlightbackground=BORDA)
-        fisicos.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        tk.Label(fisicos, text="Enderecos fisicos  (camada 2, salto a salto)",
-                 background="#fbeddc", foreground="#8a5a12",
-                 font=FONTE_TITULO).pack(anchor="w", padx=8, pady=(6, 0))
-        self.rotulo_fisicos = tk.Label(fisicos, text="-", background="#fbeddc",
-                                       font=("Consolas", 11, "bold"))
-        self.rotulo_fisicos.pack(anchor="w", padx=8)
-        self.rotulo_fisicos_nota = tk.Label(
-            fisicos, text="substituido a cada enlace", background="#fbeddc",
-            foreground=SUAVE, font=("Segoe UI", 8))
-        self.rotulo_fisicos_nota.pack(anchor="w", padx=8, pady=(0, 6))
+    def _criar_area_enderecos(self) -> None:
+        """Exibicao simultanea dos dois pares de enderecos (V4)."""
+        frame = ttk.LabelFrame(self.frame_central, text="  4. Enderecamento Vigente (V4)  ", padding=5)
+        frame.pack(fill=tk.X, padx=5, pady=4)
 
-    # pilhas
+        f_grid = ttk.Frame(frame)
+        f_grid.pack(fill=tk.X)
 
-    def _construir_pilhas(self, pai: ttk.Frame) -> None:
-        self.caixa_pilhas = ttk.LabelFrame(
-            pai, text="V2  Pilhas de camadas  /  V7  alternancia OSI - TCP/IP",
-            padding=6)
-        self.caixa_pilhas.grid(row=0, column=0, sticky="nsew")
-        self.caixa_pilhas.columnconfigure(0, weight=1)
-        self.caixa_pilhas.rowconfigure(0, weight=1)
+        # Logicos (Origem ao Destino - Fixos)
+        f_log = ttk.LabelFrame(f_grid, text="Enderecos Logicos (Camada 3 — Fixos)", padding=5)
+        f_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
+        self.lbl_ip_origem = ttk.Label(f_log, text="Origem:  —", font=("Consolas", 9, "bold"),
+                                        foreground="#4FC3F7")
+        self.lbl_ip_origem.pack(anchor=tk.W)
+        self.lbl_ip_destino = ttk.Label(f_log, text="Destino: —", font=("Consolas", 9, "bold"),
+                                         foreground="#4FC3F7")
+        self.lbl_ip_destino.pack(anchor=tk.W)
 
-        self.pilhas = tk.Canvas(self.caixa_pilhas, background=TELA,
-                                highlightthickness=1, highlightbackground=BORDA)
-        self.pilhas.grid(row=0, column=0, sticky="nsew")
-        barra = ttk.Scrollbar(self.caixa_pilhas, orient="horizontal",
-                              command=self.pilhas.xview)
-        barra.grid(row=1, column=0, sticky="ew")
-        self.pilhas.configure(xscrollcommand=barra.set)
-        self.pilhas.bind("<Configure>", lambda _e: self._redesenhar_pilhas())
+        # Fisicos (Salto a Salto - Variaveis)
+        f_fis = ttk.LabelFrame(f_grid, text="Enderecos Fisicos (Camada 2 — Salto Atual)", padding=5)
+        f_fis.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
+        self.lbl_mac_origem = ttk.Label(f_fis, text="Origem:  —", font=("Consolas", 9, "bold"),
+                                         foreground="#CE93D8")
+        self.lbl_mac_origem.pack(anchor=tk.W)
+        self.lbl_mac_destino = ttk.Label(f_fis, text="Destino: —", font=("Consolas", 9, "bold"),
+                                          foreground="#CE93D8")
+        self.lbl_mac_destino.pack(anchor=tk.W)
 
-    # registro
+    # -- Pilhas de Camadas (Coluna Direita - V2) ----------------------------
 
-    def _construir_registro(self, pai: ttk.Frame) -> None:
-        caixa = ttk.LabelFrame(pai, text="V6  Registro de eventos", padding=6)
-        caixa.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        caixa.columnconfigure(0, weight=1)
-        caixa.rowconfigure(0, weight=1)
+    def _criar_pilhas(self) -> None:
+        """Area para exibir as pilhas de camadas dos dispositivos participantes (V2)."""
+        frame = ttk.LabelFrame(self.frame_direita, text="  5. Pilhas de Camadas nos Dispositivos (V2)  ", padding=5)
+        frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.registro = tk.Text(caixa, wrap="none", font=FONTE_MONO_P,
-                                background=PAPEL, foreground=TINTA,
-                                highlightthickness=1, highlightbackground=BORDA,
-                                state="disabled", height=10)
-        self.registro.grid(row=0, column=0, sticky="nsew")
+        self.canvas_pilhas = tk.Canvas(frame, bg=COR_FUNDO_CANVAS, highlightthickness=0)
+        self.canvas_pilhas.pack(fill=tk.BOTH, expand=True)
+        self.canvas_pilhas.bind("<Configure>", lambda e: self._redesenhar_pilhas_atual())
 
-        vertical = ttk.Scrollbar(caixa, orient="vertical",
-                                 command=self.registro.yview)
-        vertical.grid(row=0, column=1, sticky="ns")
-        horizontal = ttk.Scrollbar(caixa, orient="horizontal",
-                                   command=self.registro.xview)
-        horizontal.grid(row=1, column=0, sticky="ew")
-        self.registro.configure(yscrollcommand=vertical.set,
-                                xscrollcommand=horizontal.set)
+    # -- Registro de Eventos (Coluna Esquerda - V6) -------------------------
 
-        self.registro.tag_configure("atual", background="#fff2b8")
-        self.registro.tag_configure("erro", foreground=ERRO)
-        self.registro.tag_configure("sucesso", foreground=SUCESSO)
-        self.registro.tag_configure("futuro", foreground="#9aa7b4")
+    def _criar_registro(self) -> None:
+        """Area de texto rolavel para o registro oficial de eventos (V6)."""
+        frame = ttk.LabelFrame(self.frame_esquerda, text="  6. Registro Oficial de Eventos (V6)  ", padding=5)
+        frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-    # rodape
+        self.texto_registro = scrolledtext.ScrolledText(
+            frame, height=13, font=("Consolas", 8), bg=COR_FUNDO_CONSOLE,
+            fg="#69F0AE", insertbackground="#69F0AE", state=tk.DISABLED,
+            wrap=tk.NONE,
+        )
+        self.texto_registro.pack(fill=tk.BOTH, expand=True)
 
-    def _construir_rodape(self, pai: ttk.Frame) -> None:
-        caixa = ttk.LabelFrame(pai, text="Custo do empilhamento e acoes", padding=6)
-        caixa.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        caixa.columnconfigure(0, weight=1)
+        f_btns = ttk.Frame(frame)
+        f_btns.pack(fill=tk.X, pady=3)
+        ttk.Button(f_btns, text="💾 Salvar em Arquivo (.txt)",
+                   command=self._salvar_registro).pack(side=tk.LEFT, padx=2)
+        ttk.Button(f_btns, text="Limpar",
+                   command=self._limpar_registro).pack(side=tk.LEFT, padx=2)
 
-        self.rotulo_eficiencia = tk.Label(
-            caixa, text="Execute uma simulacao para ver o quadro numerico.",
-            background=FUNDO, font=FONTE_MONO, justify="left", anchor="w")
-        self.rotulo_eficiencia.grid(row=0, column=0, sticky="w")
+    # -- Eficiencia e Comparativo (Coluna Direita) -------------------------
 
-        acoes = ttk.Frame(caixa)
-        acoes.grid(row=0, column=1, sticky="e")
-        ttk.Button(acoes, text="Salvar registro",
-                   command=self._salvar_registro).pack(side="left", padx=2)
-        ttk.Button(acoes, text="Exportar relatorio HTML",
-                   command=self._exportar_html).pack(side="left", padx=2)
-        ttk.Button(acoes, text="Tabelas de encaminhamento",
-                   command=self._abrir_tabelas).pack(side="left", padx=2)
-        ttk.Button(acoes, text="Trocar topologia",
-                   command=self._trocar_topologia).pack(side="left", padx=2)
-        ttk.Button(acoes, text="Convencoes",
-                   command=self._abrir_convencoes).pack(side="left", padx=2)
+    def _criar_eficiencia(self) -> None:
+        """Painel com metricas do empilhamento e comparativo do enunciado."""
+        frame = ttk.LabelFrame(self.frame_direita, text="  7. Custo do Empilhamento (Secao 6)  ", padding=8)
+        frame.pack(fill=tk.X, padx=5, pady=5)
 
-    # -----------------------------------------------------------------
-    # Preenchimento dos campos
-    # -----------------------------------------------------------------
+        self.lbl_dados = ttk.Label(frame, text="Dados uteis da mensagem: — octetos", font=("Arial", 9))
+        self.lbl_dados.pack(anchor=tk.W)
+        self.lbl_transmitidos = ttk.Label(frame, text="Total transmitido nos enlaces: — octetos", font=("Arial", 9))
+        self.lbl_transmitidos.pack(anchor=tk.W)
+        self.lbl_eficiencia = ttk.Label(frame, text="Eficiencia (η = dados / transmitidos): —",
+                                         font=("Consolas", 10, "bold"), foreground="#69F0AE")
+        self.lbl_eficiencia.pack(anchor=tk.W, pady=2)
+        self.lbl_sobrecarga = ttk.Label(frame, text="Sobrecarga (1 - η): —", font=("Arial", 9))
+        self.lbl_sobrecarga.pack(anchor=tk.W)
 
-    def _popular_campos(self) -> None:
-        self.combo_cenario["values"] = [c.rotulo for c in cenarios.CENARIOS]
-        self.var_cenario.set(cenarios.CENARIOS[1].rotulo)   # E2, o caso central
+        # Secao comparativa exigida na secao 6
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        ttk.Label(frame, text="Comparativo de Referencia (Enunciado):", font=("Arial", 8, "bold"),
+                  foreground="#90CAF9").pack(anchor=tk.W)
+        ttk.Label(frame, text="• Cenario C1 (1 enlace direto):  η = 45.7% (Sobrecarga 54.3%)",
+                  font=("Consolas", 8), foreground="#B0BEC5").pack(anchor=tk.W)
+        ttk.Label(frame, text="• Cenario C2 (4 enlaces centrais): η = 11.4% (Sobrecarga 88.6%)",
+                  font=("Consolas", 8), foreground="#B0BEC5").pack(anchor=tk.W)
 
+    # ===================================================================
+    # Logica de Selecao e Execucao de Cenarios
+    # ===================================================================
+
+    def _selecionar_cenario_rapido(self, cid: str) -> None:
+        """Seleciona e inicializa o cenario com um unico clique."""
+        for c_id, desc in OPCOES_CENARIOS:
+            if c_id == cid:
+                self.var_cenario_ext.set(desc)
+                self._ao_selecionar_cenario()
+                self._executar_simulacao()
+                break
+
+    def _obter_chave_cenario(self) -> str:
+        """Extrai o codigo C1..C7 ou CUSTOM da descricao selecionada."""
+        texto = self.var_cenario_ext.get()
+        for cid, desc in OPCOES_CENARIOS:
+            if desc == texto:
+                return cid
+        return "C2"
+
+    def _ao_selecionar_cenario(self, event=None) -> None:
+        """Preenche automaticamente os controles conforme o cenario escolhido."""
+        cid = self._obter_chave_cenario()
+
+        if cid == "CUSTOM":
+            self.lbl_descricao.config(text="Modo livre: ajuste os campos de origem, destino, falhas e mensagem.")
+            return
+
+        info = CENARIOS.get(cid, {})
+        self.lbl_descricao.config(text=info.get("descricao", ""))
+
+        # Preenchimento padrao conforme o cenario
+        if cid == "C1":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.1.11 (H2)")
+            self.var_queda_enlace.set("Nenhum")
+            self.var_erro_crc.set("Nenhum")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, MENSAGEM_CURTA)
+        elif cid == "C2":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.3.10 (H4)")
+            self.var_queda_enlace.set("Nenhum")
+            self.var_erro_crc.set("Nenhum")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, MENSAGEM_CURTA)
+        elif cid == "C3":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.3.10 (H4)")
+            self.var_queda_enlace.set("Nenhum")
+            self.var_erro_crc.set("Nenhum")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, "Demultiplexacao H1 e H2 -> H4")
+        elif cid == "C4":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.3.10 (H4)")
+            self.var_queda_enlace.set("R1-R4")
+            self.var_erro_crc.set("Nenhum")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, MENSAGEM_CURTA)
+        elif cid == "C5":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.9.10 (Inalcancavel)")
+            self.var_queda_enlace.set("Nenhum")
+            self.var_erro_crc.set("Nenhum")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, MENSAGEM_CURTA)
+        elif cid == "C6":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.3.10 (H4)")
+            self.var_queda_enlace.set("Nenhum")
+            self.var_erro_crc.set("R3-R4")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, MENSAGEM_CURTA)
+        elif cid == "C7":
+            self.var_origem.set("H1")
+            self.var_destino.set("10.0.3.10 (H4)")
+            self.var_queda_enlace.set("Nenhum")
+            self.var_erro_crc.set("Nenhum")
+            self.entrada_mensagem.delete(0, tk.END)
+            self.entrada_mensagem.insert(0, MENSAGEM_LONGA)
+
+    def _executar_simulacao(self) -> None:
+        """Dispara a simulacao, aplicando os parametros configurados."""
         if self.topologia is None:
+            messagebox.showerror("Erro", "Topologia nao carregada.")
             return
 
-        computadores = sorted(self.topologia.computadores())
-        self.combo_origem["values"] = computadores
-        destinos = [f"{nome}  {self.topologia.dispositivos[nome].ip_principal}"
-                    for nome in computadores] + [DESTINO_LIVRE]
-        self.combo_destino["values"] = destinos
+        self._pausar()
+        self.topologia.ativar_todos()
 
-        processos = sorted(self.topologia.processos)
-        self.combo_proc_origem["values"] = processos
-        self.combo_proc_destino["values"] = processos
-
-        enlaces = [s.id for s in self.topologia.enlaces_comutaveis()]
-        self.combo_queda["values"] = enlaces
-        self.combo_erro["values"] = enlaces
-
-        self._carregar_cenario()
-
-    def _ao_escolher_cenario(self, _evento: Any = None) -> None:
-        self._carregar_cenario()
-
-    def _ao_escolher_destino(self, _evento: Any = None) -> None:
-        escolha = self.var_destino.get()
-        if escolha == DESTINO_LIVRE:
-            self.entrada_ip.configure(state="normal")
-            self.entrada_ip.focus_set()
-        else:
-            self.entrada_ip.configure(state="normal")
-            self.var_ip.set(escolha.split()[-1] if escolha else "")
-            self.entrada_ip.configure(state="readonly")
-
-    def _ao_mudar_mensagem(self, *_args: Any) -> None:
-        octetos = len(self.var_mensagem.get().encode(config.CODIFICACAO))
-        self.rotulo_tamanho.configure(text=f"{octetos} B")
-
-    def _cenario_selecionado(self) -> cenarios.Cenario | None:
-        rotulo = self.var_cenario.get()
-        for cenario in cenarios.CENARIOS:
-            if cenario.rotulo == rotulo:
-                return cenario
-        return None
-
-    def _carregar_cenario(self) -> None:
-        """Preenche os campos com os parametros do cenario escolhido."""
-        cenario = self._cenario_selecionado()
-        if cenario is None or self.topologia is None:
-            return
-        self.cenario_atual = cenario
-        parametros = cenario.montar(self.topologia)
-        principal: Fluxo = parametros["fluxos"][0]
-
-        self.var_origem.set(principal.origem)
-        alvo = self.topologia.dispositivo_por_ip(principal.destino_ip)
-        if alvo is not None:
-            self.var_destino.set(f"{alvo.nome}  {alvo.ip_principal}")
-        else:
-            self.var_destino.set(DESTINO_LIVRE)
-        self.var_ip.set(principal.destino_ip)
-        self._ao_escolher_destino()
-
-        self.var_proc_origem.set(principal.processo_origem)
-        self.var_proc_destino.set(principal.processo_destino)
-        self.var_mensagem.set(principal.texto)
-
-        quedas = parametros.get("enlaces_derrubados") or []
-        self.var_derrubar.set(bool(quedas))
-        self.var_enlace_queda.set(quedas[0] if quedas else
-                                  (self.combo_queda["values"] or [""])[0])
-
-        erro = parametros.get("enlace_com_erro", "")
-        self.var_injetar.set(bool(erro))
-        self.var_enlace_erro.set(erro or (self.combo_erro["values"] or [""])[0])
-
-        self._limpar_tela()
-        self._atualizar_mapa_estatico()
-
-    # -----------------------------------------------------------------
-    # Execucao
-    # -----------------------------------------------------------------
-
-    def _simular(self) -> None:
-        """Monta e executa a simulacao a partir dos campos da tela."""
-        if self.topologia is None or self.motor is None:
-            messagebox.showerror("Topologia", self._erro_topologia
-                                 or "Nenhuma topologia carregada.",
-                                 parent=self.raiz)
-            return
-
-        self._parar_execucao()
-        cenario = self._cenario_selecionado()
-        parametros = cenario.montar(self.topologia) if cenario else {"fluxos": []}
-
-        # Um cenario de fluxos concorrentes e executado como esta definido; os
-        # demais usam os campos da tela, que o usuario pode ter alterado.
-        if len(parametros.get("fluxos", [])) > 1:
-            fluxos = parametros["fluxos"]
-        else:
-            fluxo = self._montar_fluxo()
-            if fluxo is None:
-                return
-            fluxos = [fluxo]
-
-        quedas = [self.var_enlace_queda.get()] if self.var_derrubar.get() else []
-        erro = self.var_enlace_erro.get() if self.var_injetar.get() else ""
+        cid = self._obter_chave_cenario()
+        msg_digitada = self.entrada_mensagem.get().strip()
 
         try:
-            self.resultado = self.motor.executar(
-                fluxos, enlaces_derrubados=quedas, enlace_com_erro=erro,
-                observacao=parametros.get("observacao", ""),
-            )
-        except Exception as excecao:                      # pragma: no cover
-            messagebox.showerror("Falha na simulacao",
-                                 f"{type(excecao).__name__}: {excecao}",
-                                 parent=self.raiz)
+            if cid == "C3":
+                # Caso especial demultiplexacao multi-fluxo
+                resultados = CENARIOS["C3"]["funcao"](self.topologia)
+                self.resultado = resultados[0]
+                for r in resultados[1:]:
+                    self.resultado.eventos.extend(r.eventos)
+                    self.resultado.octetos_transmitidos += r.octetos_transmitidos
+                self.resultado.calcular_eficiencia()
+                # Renumera passos
+                self.resultado.registro.limpar()
+                for idx, ev in enumerate(self.resultado.eventos, start=1):
+                    ev.passo = idx
+                    self.resultado.registro.adicionar(ev)
+            elif cid in CENARIOS and not msg_digitada != (MENSAGEM_LONGA if cid == "C7" else MENSAGEM_CURTA):
+                # Executa funcao padrao do cenario
+                self.resultado = CENARIOS[cid]["funcao"](self.topologia)
+            else:
+                # Executa com parametros da interface (personalizado ou mensagem customizada)
+                origem = self.var_origem.get()
+                dest_str = self.var_destino.get().split()[0].strip()
+                queda = self.var_queda_enlace.get()
+                if queda == "Nenhum":
+                    queda = ""
+                erro = self.var_erro_crc.get()
+                if erro == "Nenhum":
+                    erro = ""
+                texto = msg_digitada if msg_digitada else MENSAGEM_CURTA
+
+                motor = Motor(self.topologia)
+                self.resultado = motor.executar(
+                    origem=origem,
+                    destino_ip=dest_str,
+                    texto=texto,
+                    enlace_derrubado=queda,
+                    enlace_com_erro=erro,
+                )
+        except Exception as e:
+            traceback.print_exc()
+            messagebox.showerror("Erro na Execucao", f"Falha durante a simulacao:\n{e}")
             return
 
-        self.cenario_atual = cenario
-        self.indice = -1
-        self._preencher_registro()
+        self.eventos = self.resultado.eventos
+        self.passo_atual = 0
+
+        self.barra_progresso["maximum"] = len(self.eventos)
+        self.barra_progresso["value"] = 0
+        self.lbl_progresso.config(text=f"Passo: 0 / {len(self.eventos)}")
+
+        self._limpar_registro()
+        self._desenhar_mapa()
         self._atualizar_eficiencia()
-        self._habilitar_controles(True)
-        self._mostrar_passo()
+        self._limpar_pdu()
+        self._limpar_enderecos()
+        self._desenhar_pilhas_vazias()
 
-    def _montar_fluxo(self) -> Fluxo | None:
-        """Le os campos da tela e valida o endereco de destino."""
-        assert self.topologia is not None
-        origem = self.var_origem.get()
-        if origem not in self.topologia.dispositivos:
-            messagebox.showwarning("Origem",
-                                   "Escolha um computador de origem.",
-                                   parent=self.raiz)
-            return None
+        if hasattr(self, "lbl_explicacao"):
+            info_c = CENARIOS.get(cid, {})
+            desc_c = info_c.get("descricao", "Cenário configurado.")
+            self.lbl_explicacao.config(
+                text=f"📌 {cid}: {desc_c}\n"
+                     f"Simulação pronta no Passo 0 ({len(self.eventos)} eventos). Clique em '⏭ Avançar' ou '⏩ Contínuo'."
+            )
 
-        ip_destino = self.var_ip.get().strip()
-        from .pdu import ip_valido
-        if not ip_valido(ip_destino):
-            messagebox.showwarning(
-                "Endereco de destino",
-                f"O endereco {ip_destino!r} nao e um endereco logico valido.\n\n"
-                "Use quatro numeros de 0 a 255 separados por ponto, "
-                "por exemplo 10.0.3.10.",
-                parent=self.raiz)
-            return None
+    # -- Passos e Animacao -------------------------------------------------
 
-        texto = self.var_mensagem.get()
-        if not texto:
-            messagebox.showwarning("Mensagem", "Digite a mensagem a enviar.",
-                                   parent=self.raiz)
-            return None
+    def _atualizar_explicacao(self, evento: Evento) -> None:
+        """Atualiza o card didatico com explicacao em portugues claro."""
+        if hasattr(self, "lbl_explicacao"):
+            texto = gerar_explicacao_didatica(evento)
+            self.lbl_explicacao.config(text=texto)
 
-        return Fluxo(
-            origem=origem,
-            destino_ip=ip_destino,
-            texto=texto,
-            processo_origem=self.var_proc_origem.get() or "navegador",
-            processo_destino=self.var_proc_destino.get() or "servidorWeb",
-        )
-
-    def _habilitar_controles(self, ligado: bool) -> None:
-        estado = "normal" if ligado else "disabled"
-        for botao in (self.botao_anterior, self.botao_proximo,
-                      self.botao_executar, self.botao_reiniciar, self.botao_fim):
-            botao.configure(state=estado)
-
-    # navegacao
-
-    def _total_passos(self) -> int:
-        return len(self.resultado.registro) if self.resultado else 0
-
-    def _passo_adiante(self) -> None:
-        if self.indice + 1 >= self._total_passos():
-            self._parar_execucao()
+    def _proximo_passo(self) -> None:
+        """Avanca um evento na simulacao."""
+        if not self.eventos or self.passo_atual >= len(self.eventos):
+            self._pausar()
             return
-        self.indice += 1
-        self._mostrar_passo()
 
-    def _passo_atras(self) -> None:
-        if self.indice <= 0:
-            self.indice = -1
-        else:
-            self.indice -= 1
-        self._parar_execucao()
-        self._mostrar_passo()
+        evento = self.eventos[self.passo_atual]
+        self.passo_atual += 1
 
-    def _ir_ao_fim(self) -> None:
-        self._parar_execucao()
-        self.indice = self._total_passos() - 1
-        self._mostrar_passo()
+        self._adicionar_ao_registro(evento)
+        self._atualizar_mapa(evento)
+        self._atualizar_pdu(evento)
+        self._atualizar_enderecos(evento)
+        self._atualizar_pilhas(evento)
+        self._atualizar_explicacao(evento)
 
-    def _reiniciar(self) -> None:
-        self._parar_execucao()
-        self.indice = -1
-        self._mostrar_passo()
+        self.barra_progresso["value"] = self.passo_atual
+        self.lbl_progresso.config(text=f"Passo: {self.passo_atual} / {len(self.eventos)}")
 
-    def _alternar_execucao(self) -> None:
-        if self.executando:
-            self._parar_execucao()
-        else:
-            if self.indice + 1 >= self._total_passos():
-                self.indice = -1
-            self.executando = True
-            self.botao_executar.configure(text="Pausar")
-            self._passo_continuo()
+        if self.passo_atual >= len(self.eventos):
+            self._pausar()
+            if self.resultado and hasattr(self, "lbl_explicacao"):
+                status = "Concluída com Sucesso!" if self.resultado.sucesso else f"Finalizada ({self.resultado.mensagem_erro})"
+                self.lbl_explicacao.config(
+                    text=f"🏁 Fim da simulação: {status}\n"
+                         f"Dados úteis: {self.resultado.octetos_dados}B | Transmitidos: {self.resultado.octetos_transmitidos}B | "
+                         f"Eficiência η = {self.resultado.eficiencia:.1%} (Sobrecarga {self.resultado.sobrecarga:.1%})"
+                )
+
+    def _passo_anterior(self) -> None:
+        """Retorna um evento na simulacao (permite rever o passo anterior)."""
+        if not self.eventos or self.passo_atual <= 1:
+            self._reiniciar()
+            return
+
+        self._pausar()
+        self.passo_atual -= 1
+        evento = self.eventos[self.passo_atual - 1]
+
+        # Reconstroi o registro ate o passo atual
+        self._limpar_registro()
+        for ev in self.eventos[:self.passo_atual]:
+            self._adicionar_ao_registro(ev)
+
+        self._atualizar_mapa(evento)
+        self._atualizar_pdu(evento)
+        self._atualizar_enderecos(evento)
+        self._atualizar_pilhas(evento)
+        self._atualizar_explicacao(evento)
+
+        self.barra_progresso["value"] = self.passo_atual
+        self.lbl_progresso.config(text=f"Passo: {self.passo_atual} / {len(self.eventos)}")
+
+    def _executar_continuo(self) -> None:
+        """Inicia reproducao automatica continua."""
+        if not self.eventos:
+            self._executar_simulacao()
+        if not self.eventos:
+            return
+        self.executando = True
+        self.btn_pausa.config(state=tk.NORMAL)
+        self.btn_continuo.config(state=tk.DISABLED)
+        self._passo_continuo()
 
     def _passo_continuo(self) -> None:
-        if not self.executando:
+        """Executa um passo continuo e agenda o proximo pelo relogio do tkinter."""
+        if not self.executando or self.passo_atual >= len(self.eventos):
+            self._pausar()
             return
-        if self.indice + 1 >= self._total_passos():
-            self._parar_execucao()
-            return
-        self._passo_adiante()
-        self._tarefa = self.raiz.after(self._intervalo(), self._passo_continuo)
 
-    def _parar_execucao(self) -> None:
+        self._proximo_passo()
+        intervalo = config.VELOCIDADES[self.var_velocidade.get()][1]
+        self._timer_id = self.raiz.after(intervalo, self._passo_continuo)
+
+    def _pausar(self) -> None:
+        """Pausa a simulacao."""
         self.executando = False
-        if self._tarefa is not None:
-            self.raiz.after_cancel(self._tarefa)
-            self._tarefa = None
-        self.botao_executar.configure(text="Executar")
+        if self._timer_id:
+            self.raiz.after_cancel(self._timer_id)
+            self._timer_id = None
+        self.btn_pausa.config(state=tk.DISABLED)
+        self.btn_continuo.config(state=tk.NORMAL)
 
-    def _intervalo(self) -> int:
-        for rotulo, milissegundos in config.VELOCIDADES:
-            if rotulo == self.var_velocidade.get():
-                return milissegundos
-        return config.VELOCIDADES[config.VELOCIDADE_PADRAO][1]
+    def _reiniciar(self) -> None:
+        """Reinicia o ponteiro de passos para 0."""
+        self._pausar()
+        self.passo_atual = 0
+        self.barra_progresso["value"] = 0
+        self.lbl_progresso.config(text=f"Passo: 0 / {len(self.eventos)}")
+        self._limpar_registro()
+        self._desenhar_mapa()
+        self._limpar_pdu()
+        self._limpar_enderecos()
+        self._desenhar_pilhas_vazias()
+        if hasattr(self, "lbl_explicacao"):
+            self.lbl_explicacao.config(
+                text="Simulação reposicionada no Passo 0. Clique em '⏭ Avançar' para dar o primeiro passo."
+            )
 
-    # -----------------------------------------------------------------
-    # Atualizacao da tela
-    # -----------------------------------------------------------------
+    def _trocar_pilha(self) -> None:
+        """Troca a visualizacao entre pilhas OSI e TCP/IP (V7)."""
+        self.modo_pilha = self.var_pilha.get()
+        self._redesenhar_pilhas_atual()
 
-    def _evento_atual(self) -> Evento | None:
-        if self.resultado is None or self.indice < 0:
-            return None
-        if self.indice >= len(self.resultado.registro):
-            return None
-        return self.resultado.registro[self.indice]
+    def _redesenhar_pilhas_atual(self) -> None:
+        """Redesenha as pilhas com base no estado atual."""
+        if self.eventos and self.passo_atual > 0:
+            evento = self.eventos[self.passo_atual - 1]
+            self._atualizar_pilhas(evento)
+        else:
+            self._desenhar_pilhas_vazias()
 
-    def _mostrar_passo(self) -> None:
-        evento = self._evento_atual()
-        self.rotulo_passo.configure(
-            text=f"passo {self.indice + 1} de {self._total_passos()}")
-        self._redesenhar_mapa()
-        self._redesenhar_pilhas()
-        self._redesenhar_unidade()
-        self._atualizar_enderecos(evento)
-        self._destacar_registro()
+    # ===================================================================
+    # Mapa da Topologia de Rede (V1)
+    # ===================================================================
 
-    def _limpar_tela(self) -> None:
-        self.resultado = None
-        self.indice = -1
-        self.rotulo_unidade.configure(text="-")
-        self.rotulo_logicos.configure(text="-")
-        self.rotulo_fisicos.configure(text="-")
-        self.rotulo_passo.configure(text="passo 0 de 0")
-        self.registro.configure(state="normal")
-        self.registro.delete("1.0", "end")
-        self.registro.configure(state="disabled")
-        self._habilitar_controles(False)
-        self._redesenhar_mapa()
-        self._redesenhar_pilhas()
-        self._redesenhar_unidade()
-
-    def _atualizar_mapa_estatico(self) -> None:
-        self._redesenhar_mapa()
-
-    # V1: mapa
-
-    def _redesenhar_mapa(self) -> None:
-        tela = self.mapa
-        tela.delete("all")
-        if self.topologia is None:
-            tela.create_text(20, 20, anchor="nw", text=self._erro_topologia,
-                             fill=ERRO, font=FONTE, width=400)
-            return
-
-        largura = max(tela.winfo_width(), 320)
-        altura = max(tela.winfo_height(), 220)
-        margem_x, margem_y = 52, 34
-
-        def ponto(dispositivo) -> tuple[float, float]:
-            x, y = dispositivo.posicao
-            return (margem_x + x * (largura - 2 * margem_x),
-                    margem_y + y * (altura - 2 * margem_y))
-
-        evento = self._evento_atual()
-        percorridos = evento.caminho if evento else []
-        enlace_ativo = evento.enlace if evento else None
-        derrubados = set()
-        if self.var_derrubar.get() and self.var_enlace_queda.get():
-            derrubados.add(self.var_enlace_queda.get())
-        if self.resultado:
-            derrubados.update(self.resultado.enlaces_derrubados)
-
-        # enlaces
-        for segmento in self.topologia.segmentos:
-            membros = [(nome, self.topologia.dispositivos[nome], iface)
-                       for nome, iface in segmento.membros]
-            caido = segmento.id in derrubados
-            no_caminho = self._segmento_no_caminho(segmento, percorridos)
-            em_uso = bool(enlace_ativo) and self._segmento_liga(segmento, enlace_ativo)
-
-            if caido:
-                cor, espessura, tracejado = ERRO, 2, (6, 4)
-            elif em_uso:
-                cor, espessura, tracejado = "#d97706", 5, ()
-            elif no_caminho:
-                cor, espessura, tracejado = DESTAQUE, 3.5, ()
-            else:
-                cor, espessura, tracejado = "#93a1b3", 1.6, ()
-
-            if segmento.tipo == "lan":
-                if segmento.posicao is not None:
-                    centro = (margem_x + segmento.posicao[0] * (largura - 2 * margem_x),
-                              margem_y + segmento.posicao[1] * (altura - 2 * margem_y))
-                else:
-                    centro = self._centro(membros, ponto)
-                for _nome, dispositivo, iface in membros:
-                    x, y = ponto(dispositivo)
-                    tela.create_line(x, y, centro[0], centro[1], fill=cor,
-                                     width=espessura, dash=tracejado or None)
-                    self._rotulo_interface(tela, (x, y), centro, iface)
-                tela.create_oval(centro[0] - 4, centro[1] - 4,
-                                 centro[0] + 4, centro[1] + 4,
-                                 fill=cor, outline=cor)
-                self._rotulo_rede(tela, centro, segmento.rotulo, segmento.prefixo)
-            else:
-                (_n1, d1, i1), (_n2, d2, i2) = membros[0], membros[1]
-                p1, p2 = ponto(d1), ponto(d2)
-                tela.create_line(*p1, *p2, fill=cor, width=espessura,
-                                 dash=tracejado or None)
-                meio = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
-                texto = f"custo {segmento.custo}"
-                if caido:
-                    texto += "  (derrubado)"
-                tela.create_text(meio[0], meio[1] - 10, text=texto,
-                                 fill=ERRO if caido else SUAVE,
-                                 font=("Segoe UI", 8, "bold" if caido else "normal"))
-                self._rotulo_interface(tela, p1, p2, i1)
-                self._rotulo_interface(tela, p2, p1, i2)
-
-        # dispositivos
-        for dispositivo in self.topologia.dispositivos.values():
-            x, y = ponto(dispositivo)
-            ativo = bool(evento) and evento.dispositivo == dispositivo.nome
-            visitado = dispositivo.nome in percorridos
-            roteador = dispositivo.tipo == "roteador"
-
-            if ativo:
-                preenchimento, contorno, espessura = "#ffe9a8", "#b45309", 3
-            elif visitado:
-                preenchimento, contorno, espessura = "#dbeafe", DESTAQUE, 2
-            else:
-                preenchimento, contorno, espessura = PAPEL, "#93a1b3", 1.4
-
-            if roteador:
-                raio = 22
-                tela.create_oval(x - raio, y - raio, x + raio, y + raio,
-                                 fill=preenchimento, outline=contorno,
-                                 width=espessura)
-            else:
-                meia = 22
-                tela.create_rectangle(x - meia, y - 16, x + meia, y + 16,
-                                      fill=preenchimento, outline=contorno,
-                                      width=espessura)
-            tela.create_text(x, y, text=dispositivo.rotulo,
-                             font=("Segoe UI", 10, "bold"), fill=TINTA)
-            tela.create_text(x, y + 28, text=dispositivo.ip_principal,
-                             font=("Consolas", 7), fill=SUAVE)
-
-        # legenda
-        if evento is not None and evento.unidade is not None and evento.unidade.quadro:
-            tela.create_text(10, altura - 10, anchor="sw",
-                             text=f"quadro corrente: {evento.unidade.quadro}",
-                             font=FONTE_MONO, fill="#b45309")
-
-    @staticmethod
-    def _centro(membros, ponto) -> tuple[float, float]:
-        pontos = [ponto(dispositivo) for _n, dispositivo, _i in membros]
-        return (sum(p[0] for p in pontos) / len(pontos),
-                sum(p[1] for p in pontos) / len(pontos))
-
-    @staticmethod
-    def _rotulo_rede(tela: tk.Canvas, centro, rotulo: str, prefixo: str) -> None:
-        """Escreve o nome e o prefixo da rede local sobre um fundo opaco.
-
-        O fundo evita que o texto se confunda com os enlaces que passam atras.
-        """
-        x, y = centro[0], centro[1] - 24
-        largura = max(len(rotulo), len(prefixo)) * 5.2 + 10
-        tela.create_rectangle(x - largura / 2, y - 12, x + largura / 2, y + 12,
-                              fill=TELA, outline=BORDA, width=1)
-        tela.create_text(x, y - 5, text=rotulo, fill=SUCESSO,
-                         font=("Segoe UI", 8, "bold"))
-        tela.create_text(x, y + 6, text=prefixo, fill=SUAVE,
-                         font=("Consolas", 7))
-
-    @staticmethod
-    def _rotulo_interface(tela: tk.Canvas, origem, destino, nome: str) -> None:
-        """Escreve o nome da interface junto ao dispositivo, sobre o enlace."""
-        dx, dy = destino[0] - origem[0], destino[1] - origem[1]
-        comprimento = max((dx * dx + dy * dy) ** 0.5, 1)
-        fator = 34 / comprimento
-        tela.create_text(origem[0] + dx * fator, origem[1] + dy * fator,
-                         text=nome, font=("Consolas", 7), fill="#475569")
-
-    def _segmento_no_caminho(self, segmento, caminho: list[str]) -> bool:
-        presentes = [nome for nome, _ in segmento.membros if nome in caminho]
-        if len(presentes) < 2:
-            return False
-        for anterior, seguinte in zip(caminho, caminho[1:]):
-            if anterior in presentes and seguinte in presentes:
-                return True
-        return False
-
-    @staticmethod
-    def _segmento_liga(segmento, par: tuple[str, str]) -> bool:
-        return segmento.contem(par[0]) and segmento.contem(par[1])
-
-    # V2 e V7: pilhas
-
-    def _trocar_modo_pilha(self) -> None:
-        self._redesenhar_pilhas()
-
-    def _redesenhar_pilhas(self) -> None:
-        tela = self.pilhas
-        tela.delete("all")
+    def _desenhar_mapa(self) -> None:
+        """Renderiza os dispositivos, enlaces, custos e interfaces na tela."""
+        self.canvas_mapa.delete("all")
         if self.topologia is None:
             return
 
-        evento = self._evento_atual()
-        envolvidos = self._dispositivos_em_cena()
-        if not envolvidos:
-            tela.create_text(14, 14, anchor="nw",
-                             text="Escolha um cenario e pressione Simular.",
-                             fill=SUAVE, font=FONTE)
+        w = self.canvas_mapa.winfo_width()
+        h = self.canvas_mapa.winfo_height()
+        if w < 20 or h < 20:
             return
 
-        tcpip = self.var_pilha.get() == "TCPIP"
-        largura_caixa, altura_linha, espaco = 102, 26, 6
-        topo = 44
+        margem_x = 55
+        margem_y = 55
+        self._posicoes_mapa.clear()
 
-        for coluna, nome in enumerate(envolvidos):
-            dispositivo = self.topologia.dispositivos[nome]
-            x = 12 + coluna * (largura_caixa + espaco)
-            centro = x + largura_caixa / 2
-            ativo_aqui = evento is not None and evento.dispositivo == nome
+        for nome, disp in self.topologia.dispositivos.items():
+            x = int(margem_x + disp.posicao[0] * (w - 2 * margem_x))
+            y = int(margem_y + disp.posicao[1] * (h - 2 * margem_y))
+            self._posicoes_mapa[nome] = (x, y)
 
-            tela.create_text(centro, 13, text=nome, font=("Segoe UI", 10, "bold"),
-                             fill=DESTAQUE if ativo_aqui else TINTA)
-            tipo = "7 camadas" if dispositivo.tipo == "computador" else "3 camadas"
-            tela.create_text(centro, 25, text=tipo, font=("Segoe UI", 7), fill=SUAVE)
-            # A acao corrente fica sobre a coluna do proprio dispositivo, para
-            # nao invadir a coluna vizinha.
-            if ativo_aqui and evento is not None:
-                tela.create_text(
-                    centro, 37, text=evento.acao, font=("Segoe UI", 8, "bold"),
-                    fill=ERRO if evento.estado == "erro" else "#b45309")
+        # Enlaces do caminho ativo
+        caminho_pares = set()
+        if self.resultado and self.resultado.caminho:
+            for i in range(len(self.resultado.caminho) - 1):
+                p = tuple(sorted([self.resultado.caminho[i], self.resultado.caminho[i + 1]]))
+                caminho_pares.add(p)
 
-            linhas = self._linhas_da_pilha(dispositivo.numero_camadas, tcpip)
-            for posicao, (rotulo, camadas) in enumerate(linhas):
-                y = topo + posicao * altura_linha
-                ativa = (ativo_aqui and evento is not None
-                         and evento.numero_camada in camadas)
-                cor = CORES_CAMADA.get(max(camadas), "#e5e7eb")
-                if ativa:
-                    contorno, espessura = "#b45309", 3
-                    if evento is not None and evento.estado == "erro":
-                        contorno = ERRO
-                    cor = "#ffe9a8" if evento.estado != "erro" else "#fadbd8"
-                else:
-                    contorno, espessura = BORDA, 1
+        # Desenho dos enlaces
+        for seg in self.topologia.segmentos:
+            if len(seg.membros) < 2:
+                continue
 
-                tela.create_rectangle(x, y, x + largura_caixa, y + altura_linha - 4,
-                                      fill=cor, outline=contorno, width=espessura)
-                numeracao = (str(max(camadas)) if len(camadas) == 1
-                             else f"{min(camadas)}-{max(camadas)}")
-                meio = y + (altura_linha - 4) / 2
-                tela.create_text(x + 6, meio, anchor="w", text=numeracao,
-                                 font=("Consolas", 8, "bold"), fill=SUAVE)
-                tela.create_text(x + largura_caixa - 6, meio, anchor="e",
-                                 text=rotulo,
-                                 font=("Segoe UI", 8, "bold" if ativa else "normal"),
-                                 fill=TINTA)
+            membros_nomes = [m[0] for m in seg.membros]
+            for i in range(len(membros_nomes)):
+                for j in range(i + 1, len(membros_nomes)):
+                    d1, d2 = membros_nomes[i], membros_nomes[j]
+                    if d1 not in self._posicoes_mapa or d2 not in self._posicoes_mapa:
+                        continue
 
-        largura_total = 12 + len(envolvidos) * (largura_caixa + espaco) + 12
-        altura_total = topo + 7 * altura_linha + 16
-        tela.configure(scrollregion=(0, 0, largura_total, altura_total))
+                    x1, y1 = self._posicoes_mapa[d1]
+                    x2, y2 = self._posicoes_mapa[d2]
+                    par = tuple(sorted([d1, d2]))
 
-    @staticmethod
-    def _linhas_da_pilha(numero_camadas: int,
-                         tcpip: bool) -> list[tuple[str, tuple[int, ...]]]:
-        """Devolve as linhas a desenhar, de cima para baixo.
+                    esta_no_caminho = par in caminho_pares
+                    cor_linha = COR_ENLACE_ATIVO if esta_no_caminho else COR_ENLACE
+                    espessura = 3 if esta_no_caminho else 1
+                    traco = () if seg.ativo else (5, 3)
 
-        Um roteador tem apenas as camadas 1 a 3, e o agrupamento TCP/IP nao o
-        altera: agrupar as camadas 5 a 7 nao muda nada em quem nao as possui.
-        """
-        if tcpip:
-            grupos = [(rotulo, camadas) for rotulo, camadas in GRUPOS_TCPIP
-                      if min(camadas) <= numero_camadas]
-            return [(rotulo, tuple(c for c in camadas if c <= numero_camadas))
-                    for rotulo, camadas in grupos]
-        return [(NOMES_CAMADA[n], (n,))
-                for n in range(numero_camadas, 0, -1)]
+                    self.canvas_mapa.create_line(x1, y1, x2, y2, fill=cor_linha,
+                                                 width=espessura, dash=traco)
 
-    def _dispositivos_em_cena(self) -> list[str]:
-        """Dispositivos cuja pilha deve aparecer: os do percurso da mensagem."""
-        if self.resultado is None or self.topologia is None:
-            return []
-        vistos: list[str] = []
-        for fluxo in self.resultado.fluxos:
-            for nome in fluxo.caminho:
-                if nome not in vistos:
-                    vistos.append(nome)
-        if not vistos:
-            for evento in self.resultado.registro:
-                if evento.dispositivo not in vistos:
-                    vistos.append(evento.dispositivo)
-        return vistos
+                    # Indicador de custo para ponto-a-ponto
+                    if seg.custo > 0 and seg.tipo == "ponto_a_ponto":
+                        mx, my = (x1 + x2) // 2, (y1 + y2) // 2
+                        self.canvas_mapa.create_oval(mx - 10, my - 10, mx + 10, my + 10,
+                                                     fill="#263238", outline="#FFB300")
+                        self.canvas_mapa.create_text(mx, my, text=str(seg.custo),
+                                                     fill="#FFD54F", font=("Consolas", 9, "bold"))
 
-    # V3: unidade de dados
+                    # Rotulos das interfaces nas pontas (V1)
+                    iface1 = next((m[1] for m in seg.membros if m[0] == d1), "")
+                    iface2 = next((m[1] for m in seg.membros if m[0] == d2), "")
 
-    def _redesenhar_unidade(self) -> None:
-        tela = self.desenho
-        tela.delete("all")
-        evento = self._evento_atual()
+                    if iface1:
+                        px1 = int(x1 + 0.22 * (x2 - x1))
+                        py1 = int(y1 + 0.22 * (y2 - y1))
+                        self.canvas_mapa.create_text(px1, py1, text=iface1,
+                                                     fill="#90A4AE", font=("Consolas", 7))
+                    if iface2:
+                        px2 = int(x1 + 0.78 * (x2 - x1))
+                        py2 = int(y1 + 0.78 * (y2 - y1))
+                        self.canvas_mapa.create_text(px2, py2, text=iface2,
+                                                     fill="#90A4AE", font=("Consolas", 7))
 
-        if evento is None or evento.unidade is None:
-            self.rotulo_unidade.configure(text="-")
-            tela.create_text(12, 12, anchor="nw", font=FONTE, fill=SUAVE,
-                             text="A unidade de dados aparece aqui a cada passo.")
+        # Rotulos de Redes Locais (LANs)
+        for seg in self.topologia.segmentos:
+            if seg.tipo == "lan":
+                xs = [self._posicoes_mapa[m[0]][0] for m in seg.membros if m[0] in self._posicoes_mapa]
+                ys = [self._posicoes_mapa[m[0]][1] for m in seg.membros if m[0] in self._posicoes_mapa]
+                if xs and ys:
+                    cx = sum(xs) // len(xs)
+                    cy = min(ys) - 34
+                    self.canvas_mapa.create_text(
+                        cx, cy, text=f"{seg.rotulo} ({seg.prefixo})",
+                        fill="#80CBC4", font=("Arial", 9, "bold"),
+                    )
+
+        # Desenho dos Dispositivos (Computadores e Roteadores)
+        for nome, (x, y) in self._posicoes_mapa.items():
+            disp = self.topologia.dispositivos[nome]
+            e_roteador = (disp.tipo == "roteador")
+            raio = 22 if e_roteador else 20
+            cor_corpo = COR_ROTEADOR if e_roteador else COR_DISPOSITIVO
+
+            # Halo de selecao no caminho
+            if self.resultado and nome in (self.resultado.caminho or []):
+                self.canvas_mapa.create_oval(
+                    x - raio - 4, y - raio - 4, x + raio + 4, y + raio + 4,
+                    fill="", outline=COR_ENLACE_ATIVO, width=2,
+                )
+
+            # Forma do dispositivo
+            self.canvas_mapa.create_oval(
+                x - raio, y - raio, x + raio, y + raio,
+                fill=cor_corpo, outline="#ECEFF1", width=2,
+            )
+            self.canvas_mapa.create_text(
+                x, y, text=nome, fill="white", font=("Arial", 10, "bold"),
+            )
+
+            # Endereco IP principal logo abaixo
+            if disp.interfaces:
+                ip_principal = disp.interfaces[0].logico
+                self.canvas_mapa.create_text(
+                    x, y + raio + 12, text=ip_principal,
+                    fill="#CFD8DC", font=("Consolas", 8),
+                )
+
+    def _atualizar_mapa(self, evento: Evento) -> None:
+        """Destaca o dispositivo ativo no mapa e desenha o pacote no enlace vigente."""
+        self._desenhar_mapa()
+
+        nome = evento.dispositivo
+        if nome in self._posicoes_mapa:
+            x, y = self._posicoes_mapa[nome]
+            self.canvas_mapa.create_oval(
+                x - 28, y - 28, x + 28, y + 28,
+                fill="", outline=COR_ATIVO, width=3,
+            )
+            # Etiqueta de acao atual sobre o no
+            self.canvas_mapa.create_text(
+                x, y - 32, text=f"{evento.camada}:{evento.acao}",
+                fill=COR_ATIVO, font=("Arial", 8, "bold"),
+            )
+
+        # Destaca o enlace e desenha o pacote/quadro em transito fisico
+        if evento.camada in ("L1", "L2"):
+            desc = evento.descricao
+            no1, no2 = None, None
+            for d in self._posicoes_mapa:
+                if f"-{d}" in desc or f"–{d}" in desc or f"{d}-" in desc or f"{d}–" in desc:
+                    if no1 is None:
+                        no1 = d
+                    elif no2 is None and d != no1:
+                        no2 = d
+
+            if (not no1 or not no2) and self.resultado and self.resultado.caminho:
+                caminho = self.resultado.caminho
+                if nome in caminho:
+                    idx = caminho.index(nome)
+                    if evento.acao in ("TRANSMITE", "ENQUADRA") and idx + 1 < len(caminho):
+                        no1, no2 = nome, caminho[idx + 1]
+                    elif evento.acao in ("RECEBE", "DESENQUADRA", "ERRO") and idx - 1 >= 0:
+                        no1, no2 = caminho[idx - 1], nome
+
+            if no1 and no2 and no1 in self._posicoes_mapa and no2 in self._posicoes_mapa:
+                x1, y1 = self._posicoes_mapa[no1]
+                x2, y2 = self._posicoes_mapa[no2]
+                self.canvas_mapa.create_line(x1, y1, x2, y2, fill=COR_ATIVO, width=4)
+
+                mx, my = (x1 + x2) // 2, (y1 + y2) // 2
+                rotulo_pct = "Quadro"
+                if evento.unidade and evento.unidade.quadro:
+                    rotulo_pct = f"{evento.unidade.quadro} ({evento.tamanho}B)"
+                elif "bits" in desc:
+                    rotulo_pct = f"{evento.tamanho * 8}b"
+
+                self.canvas_mapa.create_rectangle(
+                    mx - 36, my - 11, mx + 36, my + 11,
+                    fill="#FFD54F", outline="#ECEFF1", width=2,
+                )
+                self.canvas_mapa.create_text(
+                    mx, my, text=rotulo_pct,
+                    fill=COR_ROTULO_OCTETO, font=("Consolas", 8, "bold"),
+                )
+
+    # ===================================================================
+    # Desenho da PDU (V3)
+    # ===================================================================
+
+    def _limpar_pdu(self) -> None:
+        self.canvas_pdu.delete("all")
+        self.lbl_nome_unidade.config(text="Unidade: —")
+
+    def _atualizar_pdu(self, evento: Evento) -> None:
+        """Desenha a unidade de dados como sequencia de blocos de cabecalhos (V3)."""
+        self.canvas_pdu.delete("all")
+        if evento.unidade is None:
+            self.lbl_nome_unidade.config(text="Unidade: —")
             return
 
         unidade = evento.unidade
-        rotulos = [unidade.unidade]
-        if unidade.quadro:
-            rotulos.append(f"quadro {unidade.quadro}")
-        if unidade.pacote:
-            rotulos.append(f"pacote {unidade.pacote}")
-        if unidade.total_segmentos > 1:
-            rotulos.append(f"segmento {unidade.numero_segmento}"
-                           f" de {unidade.total_segmentos}")
-        rotulos.append(f"{evento.tamanho} octetos")
-        self.rotulo_unidade.configure(text="   |   ".join(rotulos))
-
         blocos = unidade.blocos()
-        largura = max(tela.winfo_width(), 400) - 24
-        total = max(sum(b["tamanho"] for b in blocos), 1)
-        minimo = 46
-        # Reparte a largura em proporcao ao tamanho, garantindo um minimo
-        # legivel para os cabecalhos pequenos.
-        fixos = sum(minimo for b in blocos if b["tamanho"] * largura / total < minimo)
-        restante = max(largura - fixos, 60)
-        resto_total = sum(b["tamanho"] for b in blocos
-                          if b["tamanho"] * largura / total >= minimo) or 1
+        self.lbl_nome_unidade.config(
+            text=f"PDU: {unidade.unidade} | Tamanho: {unidade.tamanho()} octetos ({unidade.tamanho_bits()} bits)"
+        )
 
-        x = 12
-        altura = 44
-        y = 22
-        for bloco in blocos:
-            proporcional = bloco["tamanho"] * largura / total
-            passo = minimo if proporcional < minimo else max(
-                minimo, bloco["tamanho"] * restante / resto_total)
-            cor = CORES_CAMADA.get(bloco["camada"], "#e5e7eb")
-            if bloco["tipo"] == "dados":
-                cor = "#d7f0df"
-            elif bloco["tipo"] == "finalizador":
-                cor = "#f7e3c8"
-            tela.create_rectangle(x, y, x + passo, y + altura, fill=cor,
-                                  outline="#64748b", width=1.2)
-            tela.create_text(x + passo / 2, y + 14, text=bloco["rotulo"],
-                             font=("Segoe UI", 9, "bold"), fill=TINTA)
-            tela.create_text(x + passo / 2, y + 31,
-                             text=f"{bloco['tamanho']} B",
-                             font=("Consolas", 8), fill=SUAVE)
-            x += passo + 2
-
-        tela.create_text(12, 10, anchor="nw",
-                         text="cabecalhos a esquerda dos dados; "
-                              "finalizador da camada 2 a direita",
-                         font=("Segoe UI", 8), fill=SUAVE)
-        if evento.estado == "erro":
-            tela.create_text(12, y + altura + 6, anchor="nw", text=evento.descricao,
-                             font=("Segoe UI", 8, "bold"), fill=ERRO)
-
-    # V4: enderecos
-
-    def _atualizar_enderecos(self, evento: Evento | None) -> None:
-        if evento is None or evento.unidade is None:
-            self.rotulo_logicos.configure(text="-")
-            self.rotulo_fisicos.configure(text="-")
+        if not blocos:
             return
 
-        unidade = evento.unidade
-        if unidade.logicos:
-            self.rotulo_logicos.configure(
-                text=f"{unidade.logicos[0]}  →  {unidade.logicos[1]}")
+        w = self.canvas_pdu.winfo_width()
+        h = 56
+        x = 8
+        y = 6
+        altura_bloco = 42
+
+        total_tam = sum(b["tamanho"] for b in blocos)
+        if total_tam == 0:
+            return
+
+        largura_disponivel = max(100, w - 16)
+        escala = largura_disponivel / total_tam
+
+        for b in blocos:
+            largura = max(36, int(b["tamanho"] * escala))
+            cor = CORES_CAMADAS.get(b["camada"], "#78909C")
+            if b["tipo"] == "dados":
+                cor = "#2E7D32"
+            elif b["tipo"] == "finalizador":
+                cor = "#C62828"
+
+            self.canvas_pdu.create_rectangle(
+                x, y, x + largura, y + altura_bloco,
+                fill=cor, outline="white", width=1,
+            )
+            self.canvas_pdu.create_text(
+                x + largura // 2, y + altura_bloco // 2,
+                text=f"{b['rotulo']}\n{b['tamanho']}B",
+                fill="white", font=("Consolas", 8, "bold"),
+            )
+            x += largura
+
+    # ===================================================================
+    # Enderecos Vigentes (V4)
+    # ===================================================================
+
+    def _limpar_enderecos(self) -> None:
+        self.lbl_ip_origem.config(text="Origem:  —")
+        self.lbl_ip_destino.config(text="Destino: —")
+        self.lbl_mac_origem.config(text="Origem:  —")
+        self.lbl_mac_destino.config(text="Destino: —")
+
+    def _atualizar_enderecos(self, evento: Evento) -> None:
+        """Atualiza simultaneamente enderecos logicos e fisicos vigentes (V4)."""
+        if evento.unidade is None:
+            return
+
+        u = evento.unidade
+        if u.logicos:
+            self.lbl_ip_origem.config(text=f"Origem:  {u.logicos[0]}")
+            self.lbl_ip_destino.config(text=f"Destino: {u.logicos[1]}")
+
+        if u.fisicos:
+            self.lbl_mac_origem.config(text=f"Origem:  {u.fisicos[0]}")
+            self.lbl_mac_destino.config(text=f"Destino: {u.fisicos[1]}")
         else:
-            self.rotulo_logicos.configure(text="ainda nao inseridos (camada 3)")
+            self.lbl_mac_origem.config(text="Origem:  (sem quadro)")
+            self.lbl_mac_destino.config(text="Destino: (sem quadro)")
 
-        if unidade.fisicos:
-            self.rotulo_fisicos.configure(
-                text=f"{unidade.fisicos[0]}\n→  {unidade.fisicos[1]}")
-            enlace = unidade.metadados.get("rotulo_enlace", "")
-            self.rotulo_fisicos_nota.configure(
-                text=f"validos apenas no enlace {enlace}" if enlace
-                else "substituido a cada enlace")
+    # ===================================================================
+    # Pilhas de Camadas (V2 e V7)
+    # ===================================================================
+
+    def _desenhar_pilhas_vazias(self) -> None:
+        """Desenha as pilhas de camadas sem destaque ativo."""
+        self.canvas_pilhas.delete("all")
+        if self.topologia is None:
+            return
+
+        if self.resultado and self.resultado.caminho:
+            dispositivos = self.resultado.caminho
         else:
-            self.rotulo_fisicos.configure(text="fora de um enlace no momento")
-            self.rotulo_fisicos_nota.configure(text="substituido a cada enlace")
+            dispositivos = ["H1", "R1", "R4", "R3", "H4"]
 
-    # V6: registro
+        self._desenhar_pilhas_dispositivos(dispositivos, "", "")
 
-    def _preencher_registro(self) -> None:
-        self.registro.configure(state="normal")
-        self.registro.delete("1.0", "end")
-        if self.resultado is not None:
-            for evento in self.resultado.registro:
-                self.registro.insert("end", evento.linha + "\n")
-        self.registro.configure(state="disabled")
+    def _atualizar_pilhas(self, evento: Evento) -> None:
+        """Desenha as pilhas destacando a camada ativa no dispositivo correspondente (V2)."""
+        self.canvas_pilhas.delete("all")
+        if self.resultado and self.resultado.caminho:
+            dispositivos = self.resultado.caminho
+        else:
+            dispositivos = [evento.dispositivo]
 
-    def _destacar_registro(self) -> None:
-        self.registro.configure(state="normal")
-        for marca in ("atual", "erro", "sucesso", "futuro"):
-            self.registro.tag_remove(marca, "1.0", "end")
-        if self.resultado is not None:
-            for posicao, evento in enumerate(self.resultado.registro, start=1):
-                intervalo = (f"{posicao}.0", f"{posicao}.end")
-                if posicao - 1 > self.indice:
-                    self.registro.tag_add("futuro", *intervalo)
-                elif evento.estado == "erro":
-                    self.registro.tag_add("erro", *intervalo)
-                elif evento.estado == "sucesso":
-                    self.registro.tag_add("sucesso", *intervalo)
-        if self.indice >= 0:
-            linha = self.indice + 1
-            self.registro.tag_add("atual", f"{linha}.0", f"{linha}.end")
-            self.registro.see(f"{linha}.0")
-        self.registro.configure(state="disabled")
+        self._desenhar_pilhas_dispositivos(dispositivos, evento.dispositivo, evento.camada)
+
+    def _desenhar_pilhas_dispositivos(self, dispositivos: list[str],
+                                       disp_ativo: str, camada_ativa: str) -> None:
+        """Desenha pilhas lado a lado para cada dispositivo do percurso."""
+        canvas = self.canvas_pilhas
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w < 10 or h < 10 or not dispositivos:
+            return
+
+        n = len(dispositivos)
+        largura_pilha = min(78, max(42, (w - 20) // n))
+        espaco = max(6, (w - n * largura_pilha) // (n + 1))
+
+        nomes = NOMES_CAMADAS_OSI if self.modo_pilha == "OSI" else NOMES_CAMADAS_TCPIP
+
+        for idx, nome in enumerate(dispositivos):
+            x = espaco + idx * (largura_pilha + espaco)
+            y_base = 32
+
+            # Rotulo do dispositivo no topo
+            cor_disp = "#80D8FF" if nome == disp_ativo else "white"
+            canvas.create_text(
+                x + largura_pilha // 2, 16, text=nome,
+                fill=cor_disp, font=("Arial", 10, "bold"),
+            )
+
+            disp = self.topologia.dispositivos.get(nome) if self.topologia else None
+            e_roteador = (disp is not None and disp.tipo == "roteador")
+
+            if self.modo_pilha == "TCP/IP":
+                camadas_tcp = [
+                    (7, "Aplicacao", [7, 6, 5]),
+                    (4, "Transporte", [4]),
+                    (3, "Internet", [3]),
+                    (1, "Acesso Rede", [2, 1]),
+                ]
+                altura_cam = min(36, (h - 60) // 4)
+
+                for ci, (num_cam, rotulo, sub_camadas) in enumerate(camadas_tcp):
+                    if e_roteador and num_cam > 3:
+                        continue
+
+                    y = y_base + ci * (altura_cam + 4)
+                    cor = CORES_CAMADAS.get(num_cam, "#90A4AE")
+
+                    ativo = False
+                    if nome == disp_ativo:
+                        try:
+                            num_at = int(camada_ativa.replace("L", ""))
+                            if num_at in sub_camadas:
+                                ativo = True
+                        except ValueError:
+                            pass
+
+                    # Destaque especial para decisao de rota no roteador (V2)
+                    destaque_rota = (e_roteador and num_cam == 3 and ativo)
+
+                    if destaque_rota:
+                        canvas.create_rectangle(
+                            x - 3, y - 3, x + largura_pilha + 3, y + altura_cam + 3,
+                            fill=COR_ROTA_DESTAQUE, outline=COR_ATIVO, width=2,
+                        )
+                    elif ativo:
+                        canvas.create_rectangle(
+                            x - 2, y - 2, x + largura_pilha + 2, y + altura_cam + 2,
+                            fill=COR_ATIVO, outline=COR_ATIVO, width=2,
+                        )
+
+                    canvas.create_rectangle(
+                        x, y, x + largura_pilha, y + altura_cam,
+                        fill=cor, outline="white",
+                    )
+                    txt = "ROTEIA" if destaque_rota else rotulo[:10]
+                    canvas.create_text(
+                        x + largura_pilha // 2, y + altura_cam // 2,
+                        text=txt, fill="white", font=("Consolas", 7, "bold"),
+                    )
+            else:
+                # Modelo OSI de 7 Camadas
+                camadas = list(range(7, 0, -1))
+                if e_roteador:
+                    camadas = list(range(3, 0, -1))
+
+                altura_cam = min(28, (h - 60) // len(camadas))
+
+                for ci, num in enumerate(camadas):
+                    y = y_base + ci * (altura_cam + 3)
+                    cor = CORES_CAMADAS.get(num, "#90A4AE")
+                    ativo = (nome == disp_ativo and camada_ativa == f"L{num}")
+
+                    # Destaque especial evidente para a Camada 3 do roteador (V2)
+                    destaque_rota = (e_roteador and num == 3 and ativo)
+
+                    if destaque_rota:
+                        canvas.create_rectangle(
+                            x - 3, y - 3, x + largura_pilha + 3, y + altura_cam + 3,
+                            fill=COR_ROTA_DESTAQUE, outline=COR_ATIVO, width=3,
+                        )
+                    elif ativo:
+                        canvas.create_rectangle(
+                            x - 2, y - 2, x + largura_pilha + 2, y + altura_cam + 2,
+                            fill=COR_ATIVO, outline=COR_ATIVO, width=2,
+                        )
+
+                    canvas.create_rectangle(
+                        x, y, x + largura_pilha, y + altura_cam,
+                        fill=cor, outline="white",
+                    )
+                    rotulo = "L3 ROTA!" if destaque_rota else f"L{num} {nomes[num][:4]}"
+                    canvas.create_text(
+                        x + largura_pilha // 2, y + altura_cam // 2,
+                        text=rotulo, fill="white", font=("Consolas", 7, "bold"),
+                    )
+
+    # ===================================================================
+    # Registro de Eventos (V6)
+    # ===================================================================
+
+    def _adicionar_ao_registro(self, evento: Evento) -> None:
+        """Insere uma linha no registro e rola automaticamente."""
+        linha = formatar_evento(evento)
+        self.texto_registro.config(state=tk.NORMAL)
+        self.texto_registro.insert(tk.END, linha + "\n")
+        self.texto_registro.see(tk.END)
+        self.texto_registro.config(state=tk.DISABLED)
+
+    def _limpar_registro(self) -> None:
+        self.texto_registro.config(state=tk.NORMAL)
+        self.texto_registro.delete("1.0", tk.END)
+        self.texto_registro.config(state=tk.DISABLED)
 
     def _salvar_registro(self) -> None:
-        if self.resultado is None:
-            messagebox.showinfo("Registro", "Execute uma simulacao primeiro.",
-                                parent=self.raiz)
-            return
+        """Grava o registro de eventos em arquivo texto (V6)."""
         caminho = filedialog.asksaveasfilename(
-            parent=self.raiz, title="Salvar registro de eventos",
-            defaultextension=".txt", initialfile=config.ARQUIVO_REGISTRO_PADRAO,
-            initialdir=config.diretorio_base(),
-            filetypes=[("Texto", "*.txt"), ("Todos os arquivos", "*.*")])
-        if not caminho:
-            return
-        try:
-            self.resultado.registro.salvar(caminho, cabecalho=self._cabecalho_registro())
-        except OSError as erro:
-            messagebox.showerror("Registro", f"Nao foi possivel salvar:\n{erro}",
-                                 parent=self.raiz)
-            return
-        messagebox.showinfo("Registro", f"Registro salvo em:\n{caminho}",
-                            parent=self.raiz)
+            title="Salvar Registro de Eventos",
+            defaultextension=".txt",
+            filetypes=[("Arquivo de Texto", "*.txt"), ("Todos os Arquivos", "*.*")],
+            initialfile=config.ARQUIVO_REGISTRO_PADRAO,
+        )
+        if caminho:
+            try:
+                if self.resultado:
+                    self.resultado.registro.salvar(caminho)
+                    messagebox.showinfo("Sucesso", f"Registro gravado com sucesso em:\n{caminho}")
+            except Exception as e:
+                traceback.print_exc()
+                messagebox.showerror("Erro ao Salvar", f"Nao foi possivel gravar o arquivo:\n{e}")
 
-    def _cabecalho_registro(self) -> list[str]:
-        assert self.resultado is not None
-        nome = self.cenario_atual.rotulo if self.cenario_atual else "personalizado"
-        return [
-            f"{config.NOME_PROGRAMA} {config.VERSAO} - {config.AUTORIA}",
-            f"Integrantes: {', '.join(config.INTEGRANTES)}",
-            f"Cenario: {nome}",
-            f"Rede: {self.topologia.nome if self.topologia else '-'}",
-            *self.resultado.resumo_texto(),
-        ]
-
-    # acoes do rodape
+    # ===================================================================
+    # Eficiencia e Metricas
+    # ===================================================================
 
     def _atualizar_eficiencia(self) -> None:
-        if self.resultado is None or self.topologia is None:
+        """Atualiza os indicadores de eficiencia e sobrecarga."""
+        if self.resultado is None:
             return
-        comparativo = cenarios.comparativo_eficiencia(self.topologia)
-        linhas = [
-            "  ".join([
-                f"dados {self.resultado.octetos_dados} B",
-                f"transmitido {self.resultado.octetos_transmitidos} B",
-                f"quadros {self.resultado.total_quadros}",
-                f"eficiencia {self.resultado.eficiencia:.1%}",
-                f"sobrecarga {self.resultado.sobrecarga:.1%}",
-            ]),
-            f"referencia:  E1 um enlace {comparativo['E1_eficiencia']:.1%}"
-            f"   |   E2 quatro enlaces {comparativo['E2_eficiencia']:.1%}",
-        ]
-        if not self.resultado.entregue:
-            motivos = "; ".join(f.motivo for f in self.resultado.fluxos if f.motivo)
-            linhas.append(f"mensagem nao entregue - {motivos}")
-        self.rotulo_eficiencia.configure(
-            text="\n".join(linhas),
-            foreground=TINTA if self.resultado.entregue else ERRO)
 
-    def _exportar_html(self) -> None:
-        if self.resultado is None or self.topologia is None:
-            messagebox.showinfo("Relatorio", "Execute uma simulacao primeiro.",
-                                parent=self.raiz)
-            return
-        caminho = filedialog.asksaveasfilename(
-            parent=self.raiz, title="Exportar relatorio",
-            defaultextension=".html", initialfile=config.ARQUIVO_RELATORIO_PADRAO,
-            initialdir=config.diretorio_base(),
-            filetypes=[("Pagina HTML", "*.html"), ("Todos os arquivos", "*.*")])
-        if not caminho:
-            return
-        try:
-            relatorio.salvar(caminho, self.resultado, self.cenario_atual,
-                             self.topologia)
-        except OSError as erro:
-            messagebox.showerror("Relatorio", f"Nao foi possivel salvar:\n{erro}",
-                                 parent=self.raiz)
-            return
-        if messagebox.askyesno("Relatorio",
-                               f"Relatorio salvo em:\n{caminho}\n\nAbrir agora?",
-                               parent=self.raiz):
-            try:
-                os.startfile(caminho)                       # noqa: S606
-            except OSError:
-                pass
+        r = self.resultado
+        self.lbl_dados.config(text=f"Dados uteis da mensagem: {r.octetos_dados} octetos")
+        self.lbl_transmitidos.config(text=f"Total transmitido nos enlaces: {r.octetos_transmitidos} octetos")
+        self.lbl_eficiencia.config(text=f"Eficiencia (η = dados / transmitidos): {r.eficiencia:.1%}")
+        self.lbl_sobrecarga.config(text=f"Sobrecarga de empilhamento (1 - η): {r.sobrecarga:.1%}")
 
-    def _abrir_tabelas(self) -> None:
+    # ===================================================================
+    # Funcionalidades Extras: Tabelas de Roteamento e Troca de Topologia
+    # ===================================================================
+
+    def _abrir_tabelas_roteamento(self) -> None:
+        """Exibe a janela com as Tabelas de Encaminhamento calculadas por Dijkstra (R5 / Tabela 3)."""
         if self.topologia is None:
             return
-        janela = tk.Toplevel(self.raiz)
-        janela.title("Tabelas de encaminhamento")
-        janela.geometry("620x520")
-        janela.configure(background=FUNDO)
-        janela.transient(self.raiz)
 
-        aviso = ("Tabelas calculadas sobre os enlaces ativos no momento. "
-                 "Custo 0 indica rede diretamente conectada.")
-        ttk.Label(janela, text=aviso, style="Suave.TLabel",
-                  wraplength=580).pack(anchor="w", padx=10, pady=(10, 4))
+        janela_tab = tk.Toplevel(self.raiz)
+        janela_tab.title("Tabelas de Encaminhamento (Dijkstra) — Tabela 3")
+        janela_tab.geometry("780x560")
+        janela_tab.configure(bg=COR_FUNDO)
 
-        caderno = ttk.Notebook(janela)
-        caderno.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        frame_t = ttk.Frame(janela_tab, padding=10)
+        frame_t.pack(fill=tk.BOTH, expand=True)
 
-        for nome in sorted(self.topologia.dispositivos):
-            dispositivo = self.topologia.dispositivos[nome]
-            quadro = ttk.Frame(caderno, padding=6)
-            caderno.add(quadro, text=nome)
-            colunas = ("destino", "proximo", "interface", "custo", "via")
-            arvore = ttk.Treeview(quadro, columns=colunas, show="headings",
-                                  height=12)
-            for coluna, titulo, largura in zip(
-                    colunas,
-                    ("Rede de destino", "Proximo salto", "Interface", "Custo", "Via"),
-                    (150, 130, 80, 60, 90)):
-                arvore.heading(coluna, text=titulo)
-                arvore.column(coluna, width=largura, anchor="w")
-            for entrada in self.topologia.tabela_encaminhamento(nome):
-                arvore.insert("", "end", values=entrada.como_linha())
-            arvore.pack(fill="both", expand=True)
-            ttk.Label(quadro, style="Suave.TLabel",
-                      text=("Computador: encaminha pela rota padrao."
-                            if dispositivo.tipo == "computador"
-                            else "Roteador: rotas por menor custo (Dijkstra).")
-                      ).pack(anchor="w", pady=(6, 0))
+        ttk.Label(frame_t, text="Tabelas de Encaminhamento de Referencia (Menor Caminho)",
+                  font=("Arial", 11, "bold"), foreground="#90CAF9").pack(anchor=tk.W, pady=(0, 6))
 
-    def _abrir_convencoes(self) -> None:
-        janela = tk.Toplevel(self.raiz)
-        janela.title("Convencoes de simulacao")
-        janela.geometry("520x400")
-        janela.configure(background=FUNDO)
-        janela.transient(self.raiz)
+        txt_tabelas = scrolledtext.ScrolledText(
+            frame_t, font=("Consolas", 9), bg=COR_FUNDO_CONSOLE, fg=COR_TEXTO, wrap=tk.NONE
+        )
+        txt_tabelas.pack(fill=tk.BOTH, expand=True, pady=4)
 
-        ttk.Label(janela, wraplength=480, style="Suave.TLabel",
-                  text=("Estes sao os numeros que determinam o resultado de uma "
-                        "execucao. Todos estao reunidos em simulador/config.py.")
-                  ).pack(anchor="w", padx=12, pady=(12, 6))
+        conteudo = []
+        for r_nome in self.topologia.roteadores():
+            conteudo.append(f"==================================================")
+            conteudo.append(f"  Roteador {r_nome} — Tabela de Encaminhamento")
+            conteudo.append(f"==================================================")
+            conteudo.append(f" {'Prefixo Destino':<16} | {'Proximo Salto':<15} | {'Iface':<6} | {'Custo':<5} | {'Via':<6}")
+            conteudo.append(f"-----------------+-----------------+--------+-------+-------")
+            tabela = self.topologia.tabela_encaminhamento(r_nome)
+            for entrada in tabela:
+                conteudo.append(
+                    f" {entrada.destino_prefixo:<16} | {entrada.proximo_salto:<15} | {entrada.interface_saida:<6} | {entrada.custo:<5} | {entrada.via:<6}"
+                )
+            conteudo.append("")
 
-        arvore = ttk.Treeview(janela, columns=("parametro", "valor"),
-                              show="headings", height=14)
-        arvore.heading("parametro", text="Parametro")
-        arvore.heading("valor", text="Valor")
-        arvore.column("parametro", width=280, anchor="w")
-        arvore.column("valor", width=200, anchor="w")
-        for parametro, valor in config.resumo_convencoes():
-            arvore.insert("", "end", values=(parametro, valor))
-        arvore.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        txt_tabelas.insert(tk.END, "\n".join(conteudo))
+        txt_tabelas.config(state=tk.DISABLED)
 
-    def _trocar_topologia(self) -> None:
-        """Carrega outro arquivo de topologia, sem reiniciar o programa."""
+    def _trocar_arquivo_topologia(self) -> None:
+        """Permite carregar outro arquivo JSON de topologia (R1)."""
         caminho = filedialog.askopenfilename(
-            parent=self.raiz, title="Escolher arquivo de topologia",
-            initialdir=config.diretorio_base(),
-            filetypes=[("Topologia JSON", "*.json"), ("Todos os arquivos", "*.*")])
-        if not caminho:
-            return
-        try:
-            nova = Topologia(caminho)
-        except ErroTopologia as erro:
-            messagebox.showerror("Topologia", str(erro), parent=self.raiz)
-            return
+            title="Selecionar Arquivo de Topologia",
+            filetypes=[("Arquivos JSON", "*.json"), ("Todos os Arquivos", "*.*")],
+        )
+        if caminho:
+            try:
+                self.topologia = Topologia(caminho)
+                self._desenhar_mapa()
+                self._desenhar_pilhas_vazias()
+                messagebox.showinfo("Topologia Carregada",
+                                    f"Topologia carregada com sucesso a partir de:\n{caminho}")
+            except Exception as e:
+                traceback.print_exc()
+                messagebox.showerror("Erro ao Carregar Topologia", f"Falha ao ler JSON:\n{e}")
 
-        self._parar_execucao()
-        self.topologia = nova
-        self.motor = Motor(nova)
-        self._erro_topologia = ""
-        self._atualizar_titulo()
-        self._popular_campos()
-        self._limpar_tela()
-        messagebox.showinfo(
-            "Topologia",
-            f"Rede carregada: {nova.nome}\n"
-            f"{len(nova.computadores())} computadores, "
-            f"{len(nova.roteadores())} roteadores, "
-            f"{len(nova.segmentos)} segmentos.",
-            parent=self.raiz)
-
-    # -----------------------------------------------------------------
-    # Laco principal
-    # -----------------------------------------------------------------
+    # ===================================================================
+    # Execucao do Loop Principal
+    # ===================================================================
 
     def executar(self) -> None:
+        """Inicia o laco de eventos da interface grafica."""
         self.raiz.mainloop()

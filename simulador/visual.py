@@ -26,7 +26,7 @@ from . import config
 from .cenarios import CENARIOS, MENSAGEM_CURTA, MENSAGEM_LONGA
 from .eventos import Evento, formatar_evento
 from .motor import Motor, ResultadoSimulacao
-from .rede import Topologia
+from .rede import ErroTopologia, Topologia
 
 
 # ---------------------------------------------------------------------------
@@ -268,17 +268,86 @@ class JanelaPrincipal:
         self.modo_pilha = "OSI"  # ou "TCP/IP"
         self._timer_id: str | None = None
         self._posicoes_mapa: dict[str, tuple[int, int]] = {}
+        self._erro_topologia = ""
 
         # Carrega topologia
         try:
             self.topologia = Topologia()
-        except Exception as e:
+        except ErroTopologia as e:
+            self._erro_topologia = str(e)
+        except (OSError, ValueError, TypeError) as e:
+            self._erro_topologia = (
+                f"Falha inesperada ao carregar a topologia: "
+                f"{type(e).__name__}: {e}"
+            )
             traceback.print_exc()
-            messagebox.showerror("Erro de Inicializacao",
-                                 f"Nao foi possivel carregar topologia.json:\n{e}")
 
         self._configurar_estilos()
         self._criar_interface()
+
+        if self._erro_topologia:
+            self._marcar_topologia_indisponivel(self._erro_topologia)
+
+    def _controles_dependentes_da_topologia(self) -> list[tk.Misc]:
+        """Devolve controles que exigem uma topologia valida."""
+        controles = [
+            self.btn_carregar, self.btn_voltar, self.btn_passo,
+            self.btn_continuo, self.btn_reiniciar, self.cb_origem,
+            self.cb_destino, self.cb_queda, self.cb_erro,
+        ]
+        if hasattr(self, "btn_pausa"):
+            controles.append(self.btn_pausa)
+        return controles
+
+    def _marcar_topologia_indisponivel(self, mensagem: str) -> None:
+        """Mantem a janela aberta e bloqueia somente operacoes impossiveis."""
+        self.topologia = None
+        self._erro_topologia = mensagem
+        self._pausar()
+
+        for controle in self._controles_dependentes_da_topologia():
+            try:
+                controle.configure(state=tk.DISABLED)
+            except tk.TclError:
+                pass
+
+        self.lbl_descricao.config(
+            text="Topologia indisponivel. Use 'Trocar Topologia JSON'."
+        )
+        self.lbl_explicacao.config(
+            text=(
+                "Nao foi possivel carregar a topologia.\n\n"
+                f"{mensagem}\n\n"
+                "Selecione outro arquivo JSON para continuar."
+            )
+        )
+        self.canvas_mapa.delete("all")
+        self.canvas_pilhas.delete("all")
+        self._limpar_pdu()
+        self._limpar_enderecos()
+
+        messagebox.showerror(
+            "Topologia indisponivel",
+            f"{mensagem}\n\nA janela continuara aberta para recuperacao.",
+            parent=self.raiz,
+        )
+
+    def _marcar_topologia_disponivel(self) -> None:
+        """Reabilita a interface depois de carregar uma topologia valida."""
+        self._erro_topologia = ""
+        for controle in self._controles_dependentes_da_topologia():
+            try:
+                controle.configure(
+                    state=tk.DISABLED if controle is self.btn_pausa else tk.NORMAL
+                )
+            except tk.TclError:
+                pass
+        self._ao_selecionar_cenario()
+        self._desenhar_mapa()
+        self._desenhar_pilhas_vazias()
+        self.lbl_explicacao.config(
+            text="Topologia carregada. Escolha um cenário e clique em 'Iniciar'."
+        )
 
     def _configurar_estilos(self) -> None:
         """Configura aparencia moderna dos componentes ttk."""
@@ -1378,21 +1447,45 @@ class JanelaPrincipal:
         txt_tabelas.config(state=tk.DISABLED)
 
     def _trocar_arquivo_topologia(self) -> None:
-        """Permite carregar outro arquivo JSON de topologia (R1)."""
+        """Permite carregar outro arquivo JSON sem fechar a interface."""
         caminho = filedialog.askopenfilename(
+            parent=self.raiz,
             title="Selecionar Arquivo de Topologia",
             filetypes=[("Arquivos JSON", "*.json"), ("Todos os Arquivos", "*.*")],
         )
-        if caminho:
-            try:
-                self.topologia = Topologia(caminho)
-                self._desenhar_mapa()
-                self._desenhar_pilhas_vazias()
-                messagebox.showinfo("Topologia Carregada",
-                                    f"Topologia carregada com sucesso a partir de:\n{caminho}")
-            except Exception as e:
-                traceback.print_exc()
-                messagebox.showerror("Erro ao Carregar Topologia", f"Falha ao ler JSON:\n{e}")
+        if not caminho:
+            return
+
+        self._pausar()
+        try:
+            nova_topologia = Topologia(caminho)
+        except ErroTopologia as e:
+            self._marcar_topologia_indisponivel(str(e))
+            return
+        except (OSError, ValueError, TypeError) as e:
+            traceback.print_exc()
+            self._marcar_topologia_indisponivel(
+                f"Falha inesperada ao ler a topologia: {type(e).__name__}: {e}"
+            )
+            return
+
+        self.topologia = nova_topologia
+        self.resultado = None
+        self.eventos = []
+        self.passo_atual = 0
+        self._limpar_registro()
+        self._limpar_pdu()
+        self._limpar_enderecos()
+        self.barra_progresso["maximum"] = 0
+        self.barra_progresso["value"] = 0
+        self.lbl_progresso.config(text="Passo: 0 / 0")
+        self._marcar_topologia_disponivel()
+
+        messagebox.showinfo(
+            "Topologia carregada",
+            f"Topologia carregada com sucesso a partir de:\n{caminho}",
+            parent=self.raiz,
+        )
 
     # ===================================================================
     # Execucao do Loop Principal

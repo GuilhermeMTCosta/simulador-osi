@@ -4,8 +4,7 @@
     python main.py            abre a interface grafica
     python main.py --texto    executa os sete cenarios no terminal
 
-Qualquer falha inesperada e mostrada em uma caixa de mensagem, para a janela
-nao fechar sozinha.
+Qualquer falha inesperada e mostrada em uma caixa de mensagem.
 """
 
 from __future__ import annotations

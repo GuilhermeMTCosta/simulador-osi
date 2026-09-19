@@ -10,6 +10,7 @@ ao vizinho e deixa a camada 3 desse vizinho decidir o salto seguinte.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import zip_longest
 from typing import Any
 
 from . import config
@@ -177,15 +178,15 @@ class Motor:
 
     @staticmethod
     def _intercalar(listas: list[list[Evento]]) -> list[Evento]:
-        """Intercala as listas de eventos de fluxos concorrentes."""
-        if len(listas) <= 1:
-            return listas[0] if listas else []
-        saida: list[Evento] = []
-        for posicao in range(max(len(lista) for lista in listas)):
-            for lista in listas:
-                if posicao < len(lista):
-                    saida.append(lista[posicao])
-        return saida
+        """Intercala as listas de eventos de fluxos concorrentes.
+
+        SIMPLIFICADO: usa itertools.zip_longest em vez de laco aninhado com
+        indice manual. zip_longest agrupa a N-esima posicao de cada lista
+        (preenchendo com None onde uma lista ja acabou); o filtro descarta
+        esses None. Com uma unica lista, o resultado e ela mesma.
+        """
+        return [evento for grupo in zip_longest(*listas) for evento in grupo
+                if evento is not None]
 
     # um fluxo
 
@@ -240,6 +241,13 @@ class Motor:
         for segmento, eventos_segmento in segmentos:
             eventos.extend(eventos_segmento)
 
+            # FIX: o mesmo `contexto` e reaproveitado entre segmentos, e
+            # _percorrer() reescreve "ip_local" a cada salto do segmento
+            # anterior (com o endereco do ultimo dispositivo visitado, nao
+            # mais o da origem). Sem este reset, o 2o/3o segmento de uma
+            # mensagem longa despacharia com "ip_local" incorreto.
+            contexto["ip_local"] = origem.ip_principal
+
             unidade, eventos_descida = emissor.despachar(segmento, contexto)
             eventos.extend(eventos_descida)
             if unidade is None:
@@ -254,7 +262,11 @@ class Motor:
                 entregues += 1
 
         resumo.caminho = list(contexto["caminho"])
-        if entregues and resumo.texto_recebido:
+        # FIX: a entrega nao pode depender de `resumo.texto_recebido` ser
+        # "truthy" -- uma mensagem vazia ("") entregue com sucesso e falsy
+        # em Python e seria erroneamente contada como falha. O sinal de
+        # sucesso e `entregues`, definido explicitamente em _percorrer().
+        if entregues:
             resumo.entregue = True
             resumo.octetos_dados = texto_octetos
         elif not resumo.motivo:
@@ -272,14 +284,32 @@ class Motor:
         atual = transmissor
         saltos = 0
 
-        while unidade is not None:
+        # SIMPLIFICADO: era `while unidade is not None:`, mas toda saida do
+        # laco sempre acontece por `return` explicito (descarte ou entrega);
+        # `unidade` nunca vira None e "cai fora" naturalmente. `while True`
+        # deixa isso claro para quem le o codigo.
+        while True:
             saltos += 1
             if saltos > LIMITE_SALTOS:
+                # FIX: antes saia sem motivo, caindo no fallback generico
+                # "mensagem nao chegou ao processo de destino" em
+                # _executar_fluxo. Agora identifica a causa real: um laco
+                # de roteamento entre dispositivos mal configurados.
+                resumo.motivo = resumo.motivo or (
+                    "laco de roteamento detectado (limite de saltos excedido)"
+                )
                 return eventos, False
 
             proximo_nome = unidade.metadados.get("proximo_dispositivo", "")
             proximo = self.topologia.dispositivos.get(proximo_nome)
             if proximo is None:
+                # FIX: mesma logica -- antes saia sem motivo. Agora informa
+                # que o quadro apontava para um dispositivo desconhecido
+                # ou ausente na topologia (proximo_dispositivo vazio ou
+                # invalido), em vez do fallback generico de "nao chegou".
+                resumo.motivo = resumo.motivo or (
+                    f"proximo dispositivo desconhecido: '{proximo_nome}'"
+                )
                 return eventos, False
 
             # O quadro entra no enlace: e aqui que os octetos sao contados.
@@ -308,7 +338,10 @@ class Motor:
                 unidade, novos = receptor.encaminhar(unidade, contexto)
                 eventos.extend(novos)
                 if unidade is None:
-                    resumo.motivo = self._motivo(novos)
+                    # FIX: preserva a causa-raiz do descarte, em vez de
+                    # sobrescrever um motivo ja registrado por um segmento
+                    # anterior (mesma politica usada em _executar_fluxo).
+                    resumo.motivo = resumo.motivo or self._motivo(novos)
                     return eventos, False
                 atual = proximo_nome
                 continue
@@ -318,23 +351,27 @@ class Motor:
             if mensagem is None:
                 motivo = self._motivo(novos)
                 if motivo:
-                    resumo.motivo = motivo
+                    # FIX: mesma politica de causa-raiz aplicada aqui.
+                    resumo.motivo = resumo.motivo or motivo
                 return eventos, False
             resumo.texto_recebido = mensagem.texto_original or ""
             return eventos, True
 
-        return eventos, False
-
     # auxiliares
 
     def _ip_de_chegada(self, dispositivo: str, unidade: UnidadeDados) -> str:
-        """Endereco logico da interface pela qual o quadro chega ao vizinho."""
+        """Endereco logico da interface pela qual o quadro chega ao vizinho.
+
+        SIMPLIFICADO: laco com `return` no meio trocado por `next()` com
+        valor padrao -- mesmo comportamento, uma expressao em vez de laco.
+        """
         alvo = self.topologia.dispositivos[dispositivo]
         fisico_destino = unidade.fisicos[1] if unidade.fisicos else ""
-        for interface in alvo.interfaces:
-            if interface.fisico == fisico_destino:
-                return interface.logico
-        return alvo.ip_principal
+        return next(
+            (interface.logico for interface in alvo.interfaces
+             if interface.fisico == fisico_destino),
+            alvo.ip_principal,
+        )
 
     @staticmethod
     def _alterar_um_bit(unidade: UnidadeDados) -> UnidadeDados:
@@ -364,8 +401,13 @@ class Motor:
 
     @staticmethod
     def _motivo(eventos: list[Evento]) -> str:
-        """Extrai a descricao do evento de descarte, para o resumo."""
-        for evento in reversed(eventos):
-            if evento.acao == "DESCARTA":
-                return f"{evento.dispositivo}/{evento.camada}: {evento.descricao}"
-        return ""
+        """Extrai a descricao do evento de descarte, para o resumo.
+
+        SIMPLIFICADO: laco com `return` no meio trocado por `next()` com
+        valor padrao -- mesmo comportamento, uma expressao em vez de laco.
+        """
+        return next(
+            (f"{evento.dispositivo}/{evento.camada}: {evento.descricao}"
+             for evento in reversed(eventos) if evento.acao == "DESCARTA"),
+            "",
+        )

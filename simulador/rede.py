@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import heapq
 import json
+import re
 from dataclasses import dataclass, field
+from ipaddress import IPv4Address, IPv4Network
 from typing import Any
 
 from . import config
@@ -215,11 +217,15 @@ class Topologia:
             self.processos_por_porta[int(bruto["porta"])] = bruto["nome"]
 
     def _validar(self) -> None:
-        """Confere a coerencia minima da topologia recem carregada."""
+        """Confere a coerencia estrutural e semantica da topologia."""
         if not self.dispositivos:
             raise ErroTopologia("A topologia nao declara nenhum dispositivo.")
         if not self.segmentos:
             raise ErroTopologia("A topologia nao declara nenhum segmento.")
+
+        interfaces: set[tuple[str, str]] = set()
+        ips: dict[str, str] = {}
+        macs: dict[str, str] = {}
 
         for dispositivo in self.dispositivos.values():
             if dispositivo.tipo not in ("computador", "roteador"):
@@ -227,30 +233,162 @@ class Topologia:
                     f"Dispositivo {dispositivo.nome}: tipo desconhecido "
                     f"{dispositivo.tipo!r} (use 'computador' ou 'roteador')."
                 )
-            for interface in dispositivo.interfaces:
-                if not ip_valido(interface.logico):
+            if not dispositivo.interfaces:
+                raise ErroTopologia(
+                    f"Dispositivo {dispositivo.nome}: nenhuma interface foi declarada."
+                )
+            x, y = dispositivo.posicao
+            if not (0 <= x <= 1 and 0 <= y <= 1):
+                raise ErroTopologia(
+                    f"Dispositivo {dispositivo.nome}: posicao fora do intervalo [0, 1]."
+                )
+
+            nomes_locais: set[str] = set()
+            for item in dispositivo.interfaces:
+                chave = (dispositivo.nome, item.nome)
+                if not item.nome.strip() or item.nome in nomes_locais:
                     raise ErroTopologia(
-                        f"Endereco logico invalido em "
-                        f"{dispositivo.nome}/{interface.nome}: {interface.logico!r}"
+                        f"Dispositivo {dispositivo.nome}: nome de interface vazio ou duplicado."
+                    )
+                nomes_locais.add(item.nome)
+                interfaces.add(chave)
+
+                if not ip_valido(item.logico):
+                    raise ErroTopologia(
+                        f"Endereco logico invalido em {dispositivo.nome}/{item.nome}: "
+                        f"{item.logico!r}"
+                    )
+                if item.logico in ips:
+                    raise ErroTopologia(
+                        f"Endereco logico duplicado: {item.logico} em "
+                        f"{ips[item.logico]} e {dispositivo.nome}/{item.nome}."
+                    )
+                ips[item.logico] = f"{dispositivo.nome}/{item.nome}"
+
+                if not re.fullmatch(r"[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}", item.fisico):
+                    raise ErroTopologia(
+                        f"Endereco fisico invalido em {dispositivo.nome}/{item.nome}: "
+                        f"{item.fisico!r}. Use o formato MAC xx:xx:xx:xx:xx:xx."
+                    )
+                mac = item.fisico.upper()
+                if mac in macs:
+                    raise ErroTopologia(
+                        f"Endereco fisico duplicado: {item.fisico} em "
+                        f"{macs[mac]} e {dispositivo.nome}/{item.nome}."
+                    )
+                macs[mac] = f"{dispositivo.nome}/{item.nome}"
+
+            if dispositivo.tipo == "computador":
+                if not dispositivo.gateway or not ip_valido(dispositivo.gateway):
+                    raise ErroTopologia(
+                        f"Computador {dispositivo.nome}: gateway invalido "
+                        f"{dispositivo.gateway!r}."
                     )
 
+        interfaces_segmentos: dict[tuple[str, str], str] = {}
+        prefixos: set[str] = set()
         for segmento in self.segmentos:
-            if bits_do_prefixo(segmento.prefixo) < 0:
+            if not segmento.id.strip():
+                raise ErroTopologia("Existe um segmento sem identificador.")
+            if segmento.tipo not in ("lan", "ponto_a_ponto"):
+                raise ErroTopologia(
+                    f"Segmento {segmento.id}: tipo invalido {segmento.tipo!r}."
+                )
+            if segmento.custo < 0:
+                raise ErroTopologia(
+                    f"Segmento {segmento.id}: custo nao pode ser negativo."
+                )
+            try:
+                rede = IPv4Network(segmento.prefixo, strict=False)
+            except ValueError:
                 raise ErroTopologia(
                     f"Segmento {segmento.id}: prefixo invalido {segmento.prefixo!r}."
+                ) from None
+            prefixo = str(rede)
+            if prefixo in prefixos:
+                raise ErroTopologia(
+                    f"Prefixo de rede duplicado: {prefixo}."
                 )
-            for nome, interface in segmento.membros:
+            prefixos.add(prefixo)
+
+            if segmento.tipo == "ponto_a_ponto" and len(segmento.membros) != 2:
+                raise ErroTopologia(
+                    f"Segmento {segmento.id}: enlace ponto a ponto deve ter dois membros."
+                )
+            if segmento.tipo == "lan" and len(segmento.membros) < 2:
+                raise ErroTopologia(
+                    f"Segmento {segmento.id}: uma LAN deve ter pelo menos dois membros."
+                )
+            if segmento.posicao is not None:
+                x, y = segmento.posicao
+                if not (0 <= x <= 1 and 0 <= y <= 1):
+                    raise ErroTopologia(
+                        f"Segmento {segmento.id}: posicao fora do intervalo [0, 1]."
+                    )
+
+            membros: set[tuple[str, str]] = set()
+            for nome, nome_interface in segmento.membros:
+                chave = (nome, nome_interface)
+                if chave in membros:
+                    raise ErroTopologia(
+                        f"Segmento {segmento.id}: membro duplicado {nome}/{nome_interface}."
+                    )
+                membros.add(chave)
                 dispositivo = self.dispositivos.get(nome)
                 if dispositivo is None:
                     raise ErroTopologia(
-                        f"Segmento {segmento.id} cita o dispositivo "
-                        f"inexistente {nome!r}."
+                        f"Segmento {segmento.id} cita o dispositivo inexistente {nome!r}."
                     )
-                if dispositivo.interface_por_nome(interface) is None:
+                item = dispositivo.interface_por_nome(nome_interface)
+                if item is None:
                     raise ErroTopologia(
                         f"Segmento {segmento.id}: o dispositivo {nome} nao tem "
-                        f"a interface {interface!r}."
+                        f"a interface {nome_interface!r}."
                     )
+                if chave in interfaces_segmentos:
+                    raise ErroTopologia(
+                        f"Interface {nome}/{nome_interface} pertence aos segmentos "
+                        f"{interfaces_segmentos[chave]} e {segmento.id}."
+                    )
+                interfaces_segmentos[chave] = segmento.id
+                if IPv4Address(item.logico) not in rede:
+                    raise ErroTopologia(
+                        f"Interface {nome}/{nome_interface}: endereco {item.logico} "
+                        f"nao pertence ao prefixo {segmento.prefixo}."
+                    )
+
+        for chave in interfaces:
+            if chave not in interfaces_segmentos:
+                raise ErroTopologia(
+                    f"Interface {chave[0]}/{chave[1]} nao pertence a nenhum segmento."
+                )
+
+        for dispositivo in self.dispositivos.values():
+            if dispositivo.tipo != "computador":
+                continue
+            gateway = self.dispositivo_por_ip(dispositivo.gateway)
+            if gateway is None or gateway.tipo != "roteador":
+                raise ErroTopologia(
+                    f"Computador {dispositivo.nome}: gateway {dispositivo.gateway} "
+                    "nao existe ou nao pertence a um roteador."
+                )
+            if not any(
+                (segmento := self.segmento_ativo_de(dispositivo.nome, item.nome))
+                and segmento.contem(gateway.nome)
+                for item in dispositivo.interfaces
+            ):
+                raise ErroTopologia(
+                    f"Computador {dispositivo.nome}: gateway {dispositivo.gateway} "
+                    "nao esta em uma rede diretamente conectada."
+                )
+
+        if len(self.processos) != len(self.processos_por_porta):
+            raise ErroTopologia("Existem processos ou portas duplicados.")
+        for nome, porta in self.processos.items():
+            if not nome.strip() or not (1 <= porta <= 65535):
+                raise ErroTopologia(
+                    f"Processo {nome!r}: nome ou porta invalida ({porta})."
+                )
 
     # consultas basicas
 

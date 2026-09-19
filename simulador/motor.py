@@ -291,11 +291,25 @@ class Motor:
         while True:
             saltos += 1
             if saltos > LIMITE_SALTOS:
+                # FIX: antes saia sem motivo, caindo no fallback generico
+                # "mensagem nao chegou ao processo de destino" em
+                # _executar_fluxo. Agora identifica a causa real: um laco
+                # de roteamento entre dispositivos mal configurados.
+                resumo.motivo = resumo.motivo or (
+                    "laco de roteamento detectado (limite de saltos excedido)"
+                )
                 return eventos, False
 
             proximo_nome = unidade.metadados.get("proximo_dispositivo", "")
             proximo = self.topologia.dispositivos.get(proximo_nome)
             if proximo is None:
+                # FIX: mesma logica -- antes saia sem motivo. Agora informa
+                # que o quadro apontava para um dispositivo desconhecido
+                # ou ausente na topologia (proximo_dispositivo vazio ou
+                # invalido), em vez do fallback generico de "nao chegou".
+                resumo.motivo = resumo.motivo or (
+                    f"proximo dispositivo desconhecido: '{proximo_nome}'"
+                )
                 return eventos, False
 
             # O quadro entra no enlace: e aqui que os octetos sao contados.
@@ -346,13 +360,18 @@ class Motor:
     # auxiliares
 
     def _ip_de_chegada(self, dispositivo: str, unidade: UnidadeDados) -> str:
-        """Endereco logico da interface pela qual o quadro chega ao vizinho."""
+        """Endereco logico da interface pela qual o quadro chega ao vizinho.
+
+        SIMPLIFICADO: laco com `return` no meio trocado por `next()` com
+        valor padrao -- mesmo comportamento, uma expressao em vez de laco.
+        """
         alvo = self.topologia.dispositivos[dispositivo]
         fisico_destino = unidade.fisicos[1] if unidade.fisicos else ""
-        for interface in alvo.interfaces:
-            if interface.fisico == fisico_destino:
-                return interface.logico
-        return alvo.ip_principal
+        return next(
+            (interface.logico for interface in alvo.interfaces
+             if interface.fisico == fisico_destino),
+            alvo.ip_principal,
+        )
 
     @staticmethod
     def _alterar_um_bit(unidade: UnidadeDados) -> UnidadeDados:
@@ -382,8 +401,13 @@ class Motor:
 
     @staticmethod
     def _motivo(eventos: list[Evento]) -> str:
-        """Extrai a descricao do evento de descarte, para o resumo."""
-        for evento in reversed(eventos):
-            if evento.acao == "DESCARTA":
-                return f"{evento.dispositivo}/{evento.camada}: {evento.descricao}"
-        return ""
+        """Extrai a descricao do evento de descarte, para o resumo.
+
+        SIMPLIFICADO: laco com `return` no meio trocado por `next()` com
+        valor padrao -- mesmo comportamento, uma expressao em vez de laco.
+        """
+        return next(
+            (f"{evento.dispositivo}/{evento.camada}: {evento.descricao}"
+             for evento in reversed(eventos) if evento.acao == "DESCARTA"),
+            "",
+        )

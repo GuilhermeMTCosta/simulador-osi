@@ -35,16 +35,14 @@ Requer **Python 3.10 ou superior**. Não há dependências externas (o simulador
 
 Para abrir a interface gráfica:
 
-```
+```bash
 python main.py
-
 ```
 
 Para executar os sete cenários de teste diretamente no terminal:
 
-```
+```bash
 python main.py --texto
-
 ```
 
 *Dica para Windows:* Dê dois cliques no arquivo `executar_codigo_fonte.bat`. Ele faz o mesmo processo e avisa caso o Python não esteja instalado na máquina.
@@ -57,22 +55,21 @@ Os roteadores implementam apenas as três primeiras camadas — eles não têm c
 
 ### 📋 Funcionalidades Implementadas
 
-| 
-
 | **Funcionalidade** | **Onde está implementado** | 
+| --- | --- |
 | **Encapsulamento e desencapsulamento** nas sete camadas | `simulador/camadas.py` | 
 | **Segmentação** (L4) e remontagem em ordem no destino | `simulador/camadas.py` (CamadaTransporte) | 
 | **Cifra** (L6), desfeita apenas na L6 do destino | `simulador/camadas.py` (CamadaApresentacao) | 
 | **Verificação de erro** do quadro por CRC-32 | `simulador/pdu.py`, `camadas.py` (CamadaEnlace) | 
 | **Encaminhamento** por menor custo (Dijkstra) e tabelas | `simulador/rede.py` | 
-| **Entrega direta** sem roteador na mesma rede | `simulador/camadas.py` (CamadaRede.\_decidir) | 
+| **Entrega direta** sem roteador na mesma rede | `simulador/camadas.py` (CamadaRede._decidir) | 
 | **Reconstrução do quadro** a cada salto | `simulador/dispositivos.py` (Roteador.encaminhar) | 
 | **Queda de enlace, erro de bit e destino inalcançável** | `simulador/motor.py` (acionados pela interface) | 
 | **Demultiplexação** de fluxos concorrentes pelas portas | `simulador/camadas.py` (CamadaTransporte.sobe) | 
 | **Registro de eventos** e gravação em arquivo | `simulador/eventos.py` | 
 | **Cálculo da eficiência e sobrecarga** | `simulador/motor.py` (ResultadoSimulacao) | 
 | **Mapa, pilhas, PDU e endereços** | `simulador/visual.py` | 
-| **Alternância OSI / TCP/IP** na interface | `simulador/visual.py` (\_linhas_da_pilha) | 
+| **Alternância OSI / TCP/IP** na interface | `simulador/visual.py` (_linhas_da_pilha) | 
 | **Troca da rede simulada** sem recompilar | `simulador/rede.py`, `simulador/config.py` | 
 | **Exportação do resultado** em HTML | `simulador/relatorio.py` | 
 
@@ -81,6 +78,7 @@ Os roteadores implementam apenas as três primeiras camadas — eles não têm c
 Os sete casos exigidos no enunciado estão pré-configurados na lista **Cenário** da tela principal. Os valores abaixo são reproduzidos a cada execução e servem de gabarito.
 
 | **Cenário** | **Descrição** | **Caminho** | **Quadros** | **Dados** | **Transmitido** | **Eficiência** | 
+| :---: | --- | --- | :---: | :---: | :---: | :---: |
 | **E1** | Entrega direta | H1 - H2 | 1 | 42 B | 92 B | 45,7 % | 
 | **E2** | Entrega indireta | H1 - R1 - R4 - R3 - H4 | 4 | 42 B | 368 B | 11,4 % | 
 | **E3** | Demultiplexação | *Dois fluxos até H4* | 8 | 84 B | 736 B | 11,4 % | 
@@ -95,16 +93,15 @@ São **41 testes automatizados** que cobrem os endereços da topologia, custos d
 
 Para rodar a suíte de testes:
 
-```
+```bash
 python -m unittest discover -s tests -v
-
 ```
 
 A pasta `registros/` contém os logs completos (`E1.txt` a `E7.txt`) no formato exigido pela Seção 5.1 do enunciado. Você pode regerar esses logs na interface pelo botão **Salvar registro** ou executando o modo texto no terminal (`--texto`).
 
 ## 📂 Estrutura do Repositório e Código
 
-```
+```text
 simulador-osi/
 ├── SimuladorOSI.exe              # Executável compilado
 ├── topologia.json                # Configuração da rede (editável)
@@ -115,12 +112,12 @@ simulador-osi/
 ├── tests/                        # Suíte de testes unitários
 ├── registros/                    # Logs dos cenários E1 a E7
 └── docs/                         # Manuais e especificações do projeto
-
 ```
 
 ### Mapa de Arquivos (`simulador/`)
 
 | **Arquivo** | **Responsabilidade** | 
+| --- | --- |
 | `config.py` | Convenções: tamanhos de cabeçalho, limiares e velocidades. | 
 | `pdu.py` | Unidade de Dados de Protocolo (PDU) e construtores de cabeçalho. | 
 | `camadas.py` | As 7 classes de camada, isoladas com métodos `desce()` e `sobe()`. | 
@@ -137,11 +134,7 @@ simulador-osi/
 **Grupo 8**
 
 * Arthur Benevides - `082230016`
-
 * Fernando Montanher - `082230010`
-
 * Guilherme Costa - `081240041`
-
 * Juan Haddad - `081240043`
-
 * Murillo Ando - `082240042`

@@ -18,6 +18,21 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+def _rodar_testes() -> int:
+    """Executa os testes unitarios na pasta 'tests' de forma silenciosa."""
+    try:
+        import pytest
+    except ImportError:
+        print("Aviso: pytest nao encontrado. Pulando verificacao de testes.")
+        return 0
+
+    print("Verificando integridade do codigo (executando testes)...")
+    diretorio_testes = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
+    
+    # O "-q" roda de forma resumida e passa o caminho da pasta tests
+    return pytest.main(["-q", diretorio_testes])
+
+
 def _modo_texto() -> int:
     """Executa os sete cenarios e imprime o registro de cada um."""
     from simulador import cenarios
@@ -66,6 +81,29 @@ def _relatar_falha(excecao: BaseException) -> None:
 
 
 def main() -> int:
+    # 1. Roda os testes primeiro (abortando se falharem)
+    codigo_testes = _rodar_testes()
+    if codigo_testes != 0:
+        print("\n⚠️ Falha nos testes! O simulador nao sera iniciado.")
+        
+        # Se nao estiver rodando via terminal, avisa o usuario via popup
+        if "--texto" not in sys.argv and "-t" not in sys.argv:
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                auxiliar = tk.Tk()
+                auxiliar.withdraw()
+                messagebox.showerror(
+                    "Simulador Bloqueado",
+                    "A execucao foi bloqueada porque os testes unitarios falharam.\n\n"
+                    "Verifique a saida do terminal para corrigir o erro no codigo."
+                )
+                auxiliar.destroy()
+            except Exception:
+                pass
+        return codigo_testes
+
+    # 2. Segue para a execucao normal (texto ou interface)
     if "--texto" in sys.argv or "-t" in sys.argv:
         return _modo_texto()
 
